@@ -1,0 +1,6 @@
+{
+  "name": "CampusConnect",
+  "description": "A production-quality campus event management platform featuring interactive maps, QR ticket registrations, certificate generation, and an AI event recommendations assistant.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
