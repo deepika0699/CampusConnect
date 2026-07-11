@@ -1,9 +1,27 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, Event, Registration, Certificate, Notification, UserRole, Institution } from '../types';
 import { MOCK_USERS, INITIAL_EVENTS, INITIAL_REGISTRATIONS, INITIAL_CERTIFICATES, INITIAL_NOTIFICATIONS, INITIAL_COLLEGES } from '../data/mockData';
+import { auth, db } from '../lib/firebase';
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut 
+} from 'firebase/auth';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  onSnapshot, 
+  updateDoc, 
+  deleteDoc,
+  writeBatch
+} from 'firebase/firestore';
 
 interface AppContextProps {
   currentUser: User | null;
+  authLoading: boolean;
   users: User[];
   events: Event[];
   registrations: Registration[];
@@ -13,8 +31,20 @@ interface AppContextProps {
   currentPath: string;
   navigateTo: (path: string) => void;
   loginAs: (role: UserRole | 'guest', collegeName?: string) => void;
-  loginWithEmail: (email: string, collegeName: string) => boolean;
-  signUpUser: (name: string, email: string, role: UserRole, department: string, collegeName: string) => void;
+  loginWithEmail: (email: string, collegeName: string, password?: string) => Promise<{ success: boolean; error?: string }>;
+  signUpUser: (
+    name: string,
+    email: string,
+    role: UserRole,
+    department: string,
+    collegeName: string,
+    password?: string,
+    extraData?: {
+      yearOfStudy?: string;
+      designation?: string;
+      collegeOwnership?: string;
+    }
+  ) => Promise<{ success: boolean; error?: string }>;
   registerInstitution: (name: string, domain?: string, departments?: string[]) => Institution;
   updateUserCollege: (collegeName: string) => void;
   updateUserProfile: (name: string, bio: string, department: string) => void;
@@ -33,6 +63,14 @@ interface AppContextProps {
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);
+
+// Helper to strip undefined values from an object before writing to Firestore
+const cleanObj = (obj: any): any => {
+  if (!obj || typeof obj !== 'object') return obj;
+  return Object.fromEntries(
+    Object.entries(obj).filter(([_, v]) => v !== undefined)
+  );
+};
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // --- Routing Logic ---
@@ -58,200 +96,124 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // --- Core States ---
-  const [currentUser, setCurrentUser] = useState<User | null>(null); // Real empty SaaS platform start state (guest first)
-  const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem('cc_users');
-    let loaded: User[] = saved ? JSON.parse(saved) : [];
-    loaded = loaded.filter(Boolean);
-    // Filter out users belonging to the duplicate college (ANITS Engineering Campus, or any college containing ANITS but not exactly ANITS)
-    const originalLength = loaded.length;
-    loaded = loaded.filter(u => {
-      const colUpper = (u && u.collegeName || '').trim().toUpperCase();
-      return !(colUpper.includes('ANITS') && colUpper !== 'ANITS');
-    });
-    if (loaded.length !== originalLength) {
-      localStorage.setItem('cc_users', JSON.stringify(loaded));
-    }
-    return loaded;
-  });
-  const [events, setEvents] = useState<Event[]>(() => {
-    const saved = localStorage.getItem('cc_events');
-    let loaded: Event[] = saved ? JSON.parse(saved) : INITIAL_EVENTS;
-    loaded = loaded.filter(Boolean);
-    // Filter out events belonging to the duplicate college
-    const originalLength = loaded.length;
-    loaded = loaded.filter(e => {
-      const colUpper = (e && e.collegeName || '').trim().toUpperCase();
-      return !(colUpper.includes('ANITS') && colUpper !== 'ANITS');
-    });
-    if (loaded.length !== originalLength) {
-      localStorage.setItem('cc_events', JSON.stringify(loaded));
-    }
-    return loaded;
-  });
-  const [registrations, setRegistrations] = useState<Registration[]>(() => {
-    const saved = localStorage.getItem('cc_registrations');
-    let loaded: Registration[] = saved ? JSON.parse(saved) : INITIAL_REGISTRATIONS;
-    loaded = loaded.filter(Boolean);
-    
-    // Clean up registrations: filter by clean events and users (not belonging to duplicate ANITS)
-    const savedEventsRaw = localStorage.getItem('cc_events');
-    const savedUsersRaw = localStorage.getItem('cc_users');
-    const savedEvents: Event[] = savedEventsRaw ? JSON.parse(savedEventsRaw) : INITIAL_EVENTS;
-    const savedUsers: User[] = savedUsersRaw ? JSON.parse(savedUsersRaw) : [];
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [users, setUsers] = useState<User[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [colleges, setColleges] = useState<Institution[]>(INITIAL_COLLEGES);
 
-    const cleanEventIds = new Set(
-      (savedEvents || [])
-        .filter(Boolean)
-        .filter(e => {
-          const colUpper = (e && e.collegeName || '').trim().toUpperCase();
-          return !(colUpper.includes('ANITS') && colUpper !== 'ANITS');
-        })
-        .map(e => e.id)
-    );
-    const cleanUserEmails = new Set(
-      (savedUsers || [])
-        .filter(Boolean)
-        .filter(u => {
-          const colUpper = (u && u.collegeName || '').trim().toUpperCase();
-          return !(colUpper.includes('ANITS') && colUpper !== 'ANITS');
-        })
-        .map(u => (u && u.email || '').toLowerCase())
-    );
-
-    const originalLength = loaded.length;
-    loaded = loaded.filter(r => {
-      return r && r.eventId && r.studentEmail && cleanEventIds.has(r.eventId) && cleanUserEmails.has(r.studentEmail.toLowerCase());
-    });
-
-    if (loaded.length !== originalLength) {
-      localStorage.setItem('cc_registrations', JSON.stringify(loaded));
-    }
-    return loaded;
-  });
-  const [certificates, setCertificates] = useState<Certificate[]>(() => {
-    const saved = localStorage.getItem('cc_certificates');
-    let loaded: Certificate[] = saved ? JSON.parse(saved) : INITIAL_CERTIFICATES;
-    loaded = loaded.filter(Boolean);
-
-    const savedEventsRaw = localStorage.getItem('cc_events');
-    const savedEvents: Event[] = savedEventsRaw ? JSON.parse(savedEventsRaw) : INITIAL_EVENTS;
-    const cleanEventIds = new Set(
-      (savedEvents || [])
-        .filter(Boolean)
-        .filter(e => {
-          const colUpper = (e && e.collegeName || '').trim().toUpperCase();
-          return !(colUpper.includes('ANITS') && colUpper !== 'ANITS');
-        })
-        .map(e => e.id)
-    );
-
-    const originalLength = loaded.length;
-    loaded = loaded.filter(c => cleanEventIds.has(c.eventId));
-
-    if (loaded.length !== originalLength) {
-      localStorage.setItem('cc_certificates', JSON.stringify(loaded));
-    }
-    return loaded;
-  });
-  const [notifications, setNotifications] = useState<Notification[]>(() => {
-    const saved = localStorage.getItem('cc_notifications');
-    return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
-  });
-
-  const [colleges, setColleges] = useState<Institution[]>(() => {
-    const saved = localStorage.getItem('cc_colleges');
-    let loaded: Institution[] = saved ? JSON.parse(saved) : INITIAL_COLLEGES;
-    loaded = loaded.filter(Boolean);
-    
-    // Filter out any duplicate or other ANITS record like "ANITS Engineering Campus"
-    const originalLength = loaded.length;
-    loaded = loaded.filter(c => {
-      const nameUpper = (c && c.name || '').trim().toUpperCase();
-      // Keep only the main "ANITS" institution, discard any other institution containing "ANITS" but not exactly "ANITS"
-      if (nameUpper.includes('ANITS') && nameUpper !== 'ANITS') {
-        return false;
-      }
-      return true;
-    });
-    let updated = loaded.length !== originalLength;
-
-    // Ensure ANITS has the updated departments list (existing 4 + the 5 missing ones)
-    const missingAnitsDepts = [
-      'Computer Science and Design (CSD)',
-      'Computer Science and Machine Learning (CSM)',
-      'Information Technology (IT)',
-      'Civil Engineering',
-      'Cyber Security'
-    ];
-
-    // Seeding fallback if ANITS doesn't exist at all in current list
-    const hasAnits = loaded.some(c => (c && c.name || '').trim().toUpperCase() === 'ANITS');
-    if (!hasAnits) {
-      loaded.push({
-        id: 'col_anits',
-        name: 'ANITS',
-        domain: 'anits.edu',
-        departments: [
-          'Computer Science and Engineering (CSE)',
-          'Electronics and Communication Engineering (ECE)',
-          'Electrical and Electronics Engineering (EEE)',
-          'Mechanical Engineering',
-          ...missingAnitsDepts
-        ]
-      });
-      updated = true;
-    }
-
-    loaded = loaded.map(c => {
-      if ((c && c.name || '').trim().toUpperCase() === 'ANITS') {
-        const departmentsSet = new Set(c.departments || []);
-        const originalSize = departmentsSet.size;
-        missingAnitsDepts.forEach(dept => departmentsSet.add(dept));
-        if (departmentsSet.size !== originalSize) {
-          updated = true;
-          return {
-            ...c,
-            departments: Array.from(departmentsSet)
-          };
+  // --- Firebase Auth Session Synchronization ---
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setAuthLoading(true);
+      if (firebaseUser) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            setCurrentUser(userDoc.data() as User);
+          } else {
+            setCurrentUser(null);
+          }
+        } catch (e) {
+          console.error("Error retrieving user profile from Firestore:", e);
+          setCurrentUser(null);
         }
+      } else {
+        setCurrentUser(null);
       }
-      return c;
+      setAuthLoading(false);
     });
 
-    if (updated) {
-      localStorage.setItem('cc_colleges', JSON.stringify(loaded));
-    }
+    return () => unsubscribe();
+  }, []);
 
-    return loaded;
-  });
+  // --- Real-Time Firestore Collection Subscriptions ---
+  useEffect(() => {
+    // 1. Colleges Sync
+    const unsubColleges = onSnapshot(collection(db, 'colleges'), async (snapshot) => {
+      if (snapshot.empty) {
+        // Seed INITIAL_COLLEGES if empty
+        try {
+          const batch = writeBatch(db);
+          INITIAL_COLLEGES.forEach((col) => {
+            const docRef = doc(db, 'colleges', col.id);
+            batch.set(docRef, col);
+          });
+          await batch.commit();
+        } catch (e) {
+          console.error("Error seeding initial colleges:", e);
+        }
+      } else {
+        const loaded: Institution[] = [];
+        snapshot.forEach((d) => {
+          loaded.push(d.data() as Institution);
+        });
+        setColleges(loaded);
+      }
+    });
 
-  // Save to localStorage whenever data changes to preserve state across reloads
-  useEffect(() => {
-    localStorage.setItem('cc_users', JSON.stringify(users));
-  }, [users]);
-  useEffect(() => {
-    localStorage.setItem('cc_events', JSON.stringify(events));
-  }, [events]);
+    // 2. Users Sync
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const loaded: User[] = [];
+      snapshot.forEach((d) => {
+        loaded.push(d.data() as User);
+      });
+      setUsers(loaded);
+    });
 
-  useEffect(() => {
-    localStorage.setItem('cc_registrations', JSON.stringify(registrations));
-  }, [registrations]);
+    // 3. Events Sync
+    const unsubEvents = onSnapshot(collection(db, 'events'), (snapshot) => {
+      const loaded: Event[] = [];
+      snapshot.forEach((d) => {
+        loaded.push(d.data() as Event);
+      });
+      setEvents(loaded);
+    });
 
-  useEffect(() => {
-    localStorage.setItem('cc_certificates', JSON.stringify(certificates));
-  }, [certificates]);
+    // 4. Registrations Sync
+    const unsubRegs = onSnapshot(collection(db, 'registrations'), (snapshot) => {
+      const loaded: Registration[] = [];
+      snapshot.forEach((d) => {
+        loaded.push(d.data() as Registration);
+      });
+      setRegistrations(loaded);
+    });
 
-  useEffect(() => {
-    localStorage.setItem('cc_notifications', JSON.stringify(notifications));
-  }, [notifications]);
+    // 5. Certificates Sync
+    const unsubCerts = onSnapshot(collection(db, 'certificates'), (snapshot) => {
+      const loaded: Certificate[] = [];
+      snapshot.forEach((d) => {
+        loaded.push(d.data() as Certificate);
+      });
+      setCertificates(loaded);
+    });
 
-  useEffect(() => {
-    localStorage.setItem('cc_colleges', JSON.stringify(colleges));
-  }, [colleges]);
+    // 6. Notifications Sync
+    const unsubNotifs = onSnapshot(collection(db, 'notifications'), (snapshot) => {
+      const loaded: Notification[] = [];
+      snapshot.forEach((d) => {
+        loaded.push(d.data() as Notification);
+      });
+      // Sort notifications by date/time (latest first)
+      loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setNotifications(loaded);
+    });
+
+    return () => {
+      unsubColleges();
+      unsubUsers();
+      unsubEvents();
+      unsubRegs();
+      unsubCerts();
+      unsubNotifs();
+    };
+  }, []);
 
   // --- Notification Helper ---
-  const addNotification = (
+  const addNotification = async (
     title: string,
     message: string,
     type: 'info' | 'success' | 'warning' | 'certificate'
@@ -264,7 +226,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       read: false,
       createdAt: new Date().toISOString()
     };
-    setNotifications(prev => [newNot, ...prev]);
+    try {
+      await setDoc(doc(db, 'notifications', newNot.id), newNot);
+    } catch (e) {
+      console.error("Error creating notification document:", e);
+    }
   };
 
   // --- Auth Handlers ---
@@ -273,16 +239,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCurrentUser(null);
       navigateTo('/');
     } else {
-      const defaultCollege = collegeName || colleges[0]?.name || 'GITAM University';
+      const defaultCollege = collegeName || colleges[0]?.name || 'ANITS';
       const foundUser = users.find(u => u.role === role && u.collegeName === defaultCollege);
       
       if (foundUser) {
-        setCurrentUser(foundUser);
-        addNotification('Welcome back!', `Logged in successfully as ${foundUser.name} (${role.toUpperCase()}) at ${defaultCollege}.`, 'success');
-        
-        if (role === 'student') navigateTo('/student/dashboard');
-        else if (role === 'coordinator') navigateTo('/coordinator/dashboard');
-        else if (role === 'admin') navigateTo('/admin/dashboard');
+        signInWithEmailAndPassword(auth, foundUser.email, foundUser.password || 'password')
+          .then(() => {
+            setCurrentUser(foundUser);
+            addNotification('Welcome back!', `Logged in successfully as ${foundUser.name} (${role.toUpperCase()}) at ${defaultCollege}.`, 'success');
+            if (role === 'student') navigateTo('/student/dashboard');
+            else if (role === 'coordinator') navigateTo('/coordinator/dashboard');
+            else if (role === 'admin') navigateTo('/admin/dashboard');
+          })
+          .catch((err) => {
+            console.error("loginAs Auth failed", err);
+            addNotification('Login Error', `Firebase Auth failed for ${foundUser.name}.`, 'warning');
+          });
       } else {
         addNotification(
           'No Account Found',
@@ -293,41 +265,110 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const loginWithEmail = (email: string, collegeName: string): boolean => {
-    const foundUser = users.find(
-      u => u.email.toLowerCase() === email.toLowerCase() && u.collegeName === collegeName
-    );
-    if (foundUser) {
-      setCurrentUser(foundUser);
-      addNotification('Welcome back!', `Logged in successfully as ${foundUser.name}.`, 'success');
+  const loginWithEmail = async (email: string, collegeName: string, password?: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      if (!password) {
+        return { success: false, error: "Password is required for secure authentication." };
+      }
       
-      if (foundUser.role === 'student') navigateTo('/student/dashboard');
-      else if (foundUser.role === 'coordinator') navigateTo('/coordinator/dashboard');
-      else if (foundUser.role === 'admin') navigateTo('/admin/dashboard');
-      return true;
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
+
+      const userDoc = await getDoc(doc(db, 'users', uid));
+      if (!userDoc.exists()) {
+        await signOut(auth);
+        return { success: false, error: "Your user profile could not be found in the database." };
+      }
+
+      const profile = userDoc.data() as User;
+      if (profile.collegeName !== collegeName) {
+        await signOut(auth);
+        return { success: false, error: `You are registered under "${profile.collegeName}", not "${collegeName}".` };
+      }
+
+      setCurrentUser(profile);
+      addNotification('Welcome back!', `Logged in successfully as ${profile.name}.`, 'success');
+      
+      if (profile.role === 'student') navigateTo('/student/dashboard');
+      else if (profile.role === 'coordinator') navigateTo('/coordinator/dashboard');
+      else if (profile.role === 'admin') navigateTo('/admin/dashboard');
+      return { success: true };
+    } catch (e: any) {
+      console.error("Login error:", e);
+      let errMsg = e.message || "Login failed. Please check your credentials.";
+      if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential' || e.code === 'auth/invalid-email') {
+        errMsg = "Incorrect password or email. Please check your credentials and try again.";
+      } else if (e.code === 'auth/user-not-found') {
+        errMsg = `No registered account found with email "${email}".`;
+      }
+      return { success: false, error: errMsg };
     }
-    return false;
   };
 
-  const signUpUser = (name: string, email: string, role: UserRole, department: string, collegeName: string) => {
-    const newUser: User = {
-      id: `usr_${Date.now()}`,
-      name,
-      email,
-      role,
-      department,
-      collegeName,
-      studentId: role === 'student' ? `STU-2026-${Math.floor(1000 + Math.random() * 9000)}` : undefined,
-      avatarUrl: `https://images.unsplash.com/photo-${role === 'student' ? '1534528741775-53994a69daeb' : '1573496359142-b8d87734a5a2'}?auto=format&fit=crop&q=80&w=200`,
-      bio: `${role === 'student' ? 'Student' : 'Staff'} at ${collegeName}`
-    };
-    setUsers(prev => [...prev, newUser]);
-    setCurrentUser(newUser);
-    addNotification('Account Created!', `Welcome to CampusConnect, ${name}! You are registered at ${collegeName}.`, 'success');
-    
-    if (role === 'student') navigateTo('/student/dashboard');
-    else if (role === 'coordinator') navigateTo('/coordinator/dashboard');
-    else if (role === 'admin') navigateTo('/admin/dashboard');
+  const signUpUser = async (
+    name: string,
+    email: string,
+    role: UserRole,
+    department: string,
+    collegeName: string,
+    password?: string,
+    extraData?: {
+      yearOfStudy?: string;
+      designation?: string;
+      collegeOwnership?: string;
+    }
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      if (!password) {
+        return { success: false, error: "Password is required for registration." };
+      }
+
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
+
+      const collegeObj = colleges.find(c => c.name === collegeName);
+      const collegeId = collegeObj ? collegeObj.id : `col_${Date.now()}`;
+      const departmentId = (role !== 'admin' && department) ? `dept_${department.replace(/\s+/g, '_').toLowerCase()}` : undefined;
+
+      const newUser: User = {
+        id: uid,
+        uid: uid,
+        name,
+        email,
+        role,
+        department: role !== 'admin' ? department : undefined,
+        departmentId,
+        collegeName,
+        collegeId,
+        password,
+        createdAt: new Date().toISOString(),
+        studentId: role === 'student' ? `STU-2026-${Math.floor(1000 + Math.random() * 9000)}` : undefined,
+        avatarUrl: `https://images.unsplash.com/photo-${role === 'student' ? '1534528741775-53994a69daeb' : '1573496359142-b8d87734a5a2'}?auto=format&fit=crop&q=80&w=200`,
+        bio: `${role === 'student' ? 'Student' : role === 'coordinator' ? 'Coordinator' : 'Admin'} at ${collegeName}`,
+        yearOfStudy: role === 'student' ? extraData?.yearOfStudy : undefined,
+        designation: role === 'coordinator' ? extraData?.designation : undefined,
+        collegeOwnership: role === 'admin' ? (extraData?.collegeOwnership || collegeName) : undefined
+      };
+
+      const cleanedUser = cleanObj(newUser);
+      await setDoc(doc(db, 'users', uid), cleanedUser);
+      setCurrentUser(cleanedUser);
+      addNotification('Account Created!', `Welcome to CampusConnect, ${name}! You are registered at ${collegeName}.`, 'success');
+      
+      if (role === 'student') navigateTo('/student/dashboard');
+      else if (role === 'coordinator') navigateTo('/coordinator/dashboard');
+      else if (role === 'admin') navigateTo('/admin/dashboard');
+      return { success: true };
+    } catch (e: any) {
+      console.error("Signup error:", e);
+      let errMsg = e.message || "Registration failed.";
+      if (e.code === 'auth/email-already-in-use') {
+        errMsg = `The email address "${email}" is already registered.`;
+      } else if (e.code === 'auth/weak-password') {
+        errMsg = "The password is too weak. Please choose a stronger password (at least 6 characters).";
+      }
+      return { success: false, error: errMsg };
+    }
   };
 
   const registerInstitution = (name: string, domain?: string, departments?: string[]): Institution => {
@@ -355,28 +396,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       domain: domain || `${nameTrimmed.toLowerCase().replace(/[^a-z0-9]/g, '')}.edu`,
       departments: departments || []
     };
-    setColleges(prev => [...prev, newInst]);
+    
+    setDoc(doc(db, 'colleges', newInst.id), newInst);
     addNotification('Institution Registered!', `"${nameTrimmed}" is now on CampusConnect SaaS network.`, 'success');
     return newInst;
   };
 
-  const updateUserCollege = (collegeName: string) => {
+  const updateUserCollege = async (collegeName: string) => {
     if (currentUser) {
-      setCurrentUser(prev => prev ? { ...prev, collegeName } : null);
-      addNotification('Context Switched', `Now viewing as a member of ${collegeName}.`, 'info');
+      const updated = { ...currentUser, collegeName };
+      setCurrentUser(updated);
+      try {
+        await setDoc(doc(db, 'users', currentUser.id), updated);
+        addNotification('Context Switched', `Now viewing as a member of ${collegeName}.`, 'info');
+      } catch (e) {
+        console.error("Error switching college context:", e);
+      }
     }
   };
 
-  const updateUserProfile = (name: string, bio: string, department: string) => {
+  const updateUserProfile = async (name: string, bio: string, department: string) => {
     if (currentUser) {
       const updatedUser = { ...currentUser, name, bio, department };
       setCurrentUser(updatedUser);
-      setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+      try {
+        await setDoc(doc(db, 'users', currentUser.id), updatedUser);
+        addNotification('Profile Updated', 'Profile updated successfully.', 'success');
+      } catch (e) {
+        console.error("Error updating user profile:", e);
+      }
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     const prevName = currentUser?.name || 'User';
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.error("Signout error:", e);
+    }
     setCurrentUser(null);
     addNotification('Goodbye!', `${prevName} logged out successfully.`, 'info');
     navigateTo('/');
@@ -419,14 +477,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=CC-REG-${eventId}-${currentUser.id}-registered`
     };
 
-    setRegistrations(prev => [newReg, ...prev]);
+    setDoc(doc(db, 'registrations', newReg.id), newReg);
     
-    // Update count
-    setEvents(prev =>
-      prev.map(e =>
-        e.id === eventId ? { ...e, currentParticipants: e.currentParticipants + 1 } : e
-      )
-    );
+    // Update participant count
+    updateDoc(doc(db, 'events', eventId), {
+      currentParticipants: eventObj.currentParticipants + 1
+    });
 
     addNotification(
       'Registration Confirmed!',
@@ -436,20 +492,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return true;
   };
 
-  const cancelRegistration = (registrationId: string) => {
+  const cancelRegistration = async (registrationId: string) => {
     const reg = registrations.find(r => r.id === registrationId);
     if (!reg) return;
 
-    setRegistrations(prev =>
-      prev.map(r => r.id === registrationId ? { ...r, status: 'cancelled' } : r)
-    );
+    await updateDoc(doc(db, 'registrations', registrationId), {
+      status: 'cancelled'
+    });
 
     // Decrement participants
-    setEvents(prev =>
-      prev.map(e =>
-        e.id === reg.eventId ? { ...e, currentParticipants: Math.max(0, e.currentParticipants - 1) } : e
-      )
-    );
+    if (reg.eventId) {
+      const eventObj = events.find(e => e.id === reg.eventId);
+      if (eventObj) {
+        await updateDoc(doc(db, 'events', reg.eventId), {
+          currentParticipants: Math.max(0, eventObj.currentParticipants - 1)
+        });
+      }
+    }
 
     addNotification(
       'Registration Cancelled',
@@ -478,7 +537,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       clubOrg: eventData.clubOrg || 'Student Activities Council',
       facultyCoordinator: eventData.facultyCoordinator || currentUser.name,
       studentCoordinator: eventData.studentCoordinator || 'Alex Rivera',
-      mapLocation: eventData.mapLocation || { lat: 17.7813, lng: 83.3776, name: 'GITAM Campus' }, // coordinates for Visakhapatnam GITAM/ANITS area (approx)
+      mapLocation: eventData.mapLocation || { lat: 17.7813, lng: 83.3776, name: 'GITAM Campus' },
       date: eventData.date || new Date().toISOString().split('T')[0],
       time: eventData.time || '10:00',
       registrationDeadline: eventData.registrationDeadline || new Date().toISOString().split('T')[0],
@@ -491,7 +550,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       attendanceTracked: false
     };
 
-    setEvents(prev => [newEvent, ...prev]);
+    setDoc(doc(db, 'events', newEvent.id), newEvent);
+
     addNotification(
       'Event Submitted',
       `"${newEvent.title}" has been submitted for administration review.`,
@@ -501,28 +561,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return newEvent;
   };
 
-  const updateEvent = (eventId: string, updatedData: Partial<Event>) => {
-    setEvents(prev =>
-      prev.map(e => e.id === eventId ? { ...e, ...updatedData } : e)
-    );
+  const updateEvent = async (eventId: string, updatedData: Partial<Event>) => {
+    await updateDoc(doc(db, 'events', eventId), updatedData);
     addNotification('Event Updated', 'Event details have been successfully revised.', 'success');
   };
 
-  const deleteEvent = (eventId: string) => {
+  const deleteEvent = async (eventId: string) => {
     const ev = events.find(e => e.id === eventId);
-    setEvents(prev => prev.filter(e => e.id !== eventId));
-    // also mark associated registrations cancelled
-    setRegistrations(prev =>
-      prev.map(r => r.eventId === eventId ? { ...r, status: 'cancelled' } : r)
-    );
+    await deleteDoc(doc(db, 'events', eventId));
+    
+    // Also mark associated registrations as cancelled
+    const associatedRegs = registrations.filter(r => r.eventId === eventId);
+    if (associatedRegs.length > 0) {
+      try {
+        const batch = writeBatch(db);
+        associatedRegs.forEach(reg => {
+          batch.update(doc(db, 'registrations', reg.id), { status: 'cancelled' });
+        });
+        await batch.commit();
+      } catch (e) {
+        console.error("Error cancelling associated registrations:", e);
+      }
+    }
+
     addNotification('Event Removed', `"${ev?.title}" has been deleted from the catalog.`, 'warning');
   };
 
   // --- Admin Actions ---
-  const approveEvent = (eventId: string) => {
-    setEvents(prev =>
-      prev.map(e => e.id === eventId ? { ...e, status: 'approved' } : e)
-    );
+  const approveEvent = async (eventId: string) => {
+    await updateDoc(doc(db, 'events', eventId), { status: 'approved' });
     const ev = events.find(e => e.id === eventId);
     if (ev) {
       addNotification(
@@ -533,10 +600,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const rejectEvent = (eventId: string) => {
-    setEvents(prev =>
-      prev.map(e => e.id === eventId ? { ...e, status: 'rejected' } : e)
-    );
+  const rejectEvent = async (eventId: string) => {
+    await updateDoc(doc(db, 'events', eventId), { status: 'rejected' });
     const ev = events.find(e => e.id === eventId);
     if (ev) {
       addNotification(
@@ -548,19 +613,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // --- Attendance & Verification Engine ---
-  const markAttendance = (registrationId: string, attended: boolean) => {
+  const markAttendance = async (registrationId: string, attended: boolean) => {
     const reg = registrations.find(r => r.id === registrationId);
     if (!reg) return;
 
     if (attended) {
       // Mark as Attended
-      setRegistrations(prev =>
-        prev.map(r =>
-          r.id === registrationId
-            ? { ...r, status: 'attended', attendedAt: new Date().toISOString() }
-            : r
-        )
-      );
+      await updateDoc(doc(db, 'registrations', registrationId), {
+        status: 'attended',
+        attendedAt: new Date().toISOString()
+      });
 
       // Check if certificate already exists
       const hasCertificate = certificates.some(c => c.registrationId === registrationId);
@@ -582,12 +644,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           coordinatorName: eventObj?.coordinatorName || 'Department Head'
         };
 
-        setCertificates(prev => [...prev, newCert]);
-        
+        await setDoc(doc(db, 'certificates', certId), newCert);
+
         // Bind cert ID back to registration
-        setRegistrations(prev =>
-          prev.map(r => r.id === registrationId ? { ...r, certificateId: certId } : r)
-        );
+        await updateDoc(doc(db, 'registrations', registrationId), {
+          certificateId: certId
+        });
 
         addNotification(
           'Certificate Issued!',
@@ -597,27 +659,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     } else {
       // Revert to Registered
-      setRegistrations(prev =>
-        prev.map(r =>
-          r.id === registrationId
-            ? { ...r, status: 'registered', attendedAt: undefined, certificateId: undefined }
-            : r
-        )
-      );
+      await updateDoc(doc(db, 'registrations', registrationId), {
+        status: 'registered',
+        attendedAt: null,
+        certificateId: null
+      });
+
       // Remove certificate if exists
-      setCertificates(prev => prev.filter(c => c.registrationId !== registrationId));
+      const cert = certificates.find(c => c.registrationId === registrationId);
+      if (cert) {
+        await deleteDoc(doc(db, 'certificates', cert.id));
+      }
     }
   };
 
   // --- Clear/Read Notifications ---
-  const clearNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
+  const clearNotification = async (id: string) => {
+    await deleteDoc(doc(db, 'notifications', id));
   };
 
-  const markNotificationRead = (id: string) => {
-    setNotifications(prev =>
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    );
+  const markNotificationRead = async (id: string) => {
+    await updateDoc(doc(db, 'notifications', id), {
+      read: true
+    });
   };
 
   return (

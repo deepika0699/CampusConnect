@@ -14,14 +14,22 @@ export interface Institution {
 
 export interface User {
   id: string;
+  uid?: string; // Standardized uid representation
   name: string;
   email: string;
   role: UserRole;
   department?: string;
+  departmentId?: string;
   avatarUrl?: string;
   studentId?: string; // e.g., "STU2026042"
   bio?: string;
   collegeName: string; // Every user belongs to a college
+  collegeId?: string;
+  password?: string;
+  createdAt?: string;
+  yearOfStudy?: string;
+  designation?: string;
+  collegeOwnership?: string;
 }
 
 export interface Event {

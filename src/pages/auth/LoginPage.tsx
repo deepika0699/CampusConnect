@@ -3,13 +3,15 @@ import { useApp } from '../../context/AppContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { Input, Select } from '../../components/common/Input';
-import { Sparkles, Shield, User, ArrowRight, Lock, Mail, Building2, HelpCircle } from 'lucide-react';
+import { Sparkles, Shield, User, ArrowRight, Lock, Mail, Building2, HelpCircle, Loader2 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const { loginAs, loginWithEmail, colleges, users, navigateTo, currentPath } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [selectedCollege, setSelectedCollege] = useState(colleges[0]?.name || '');
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Extract selected role query parameter (e.g. /login?role=student)
   const getSelectedRole = (): string => {
@@ -29,15 +31,25 @@ export const LoginPage: React.FC = () => {
     }
   }, [colleges, selectedCollege]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     if (!selectedCollege) {
-      alert('Please register an educational institution first.');
+      setError('Please register an educational institution first.');
       return;
     }
-    const success = loginWithEmail(email, selectedCollege);
-    if (!success) {
-      alert(`No registered account found with email "${email}" at "${selectedCollege}". Please register first!`);
+    
+    setIsLoading(true);
+    try {
+      const result = await loginWithEmail(email, selectedCollege, password);
+      if (result && !result.success) {
+        setError(result.error || `No registered account found with email "${email}" at "${selectedCollege}". Please register first!`);
+      }
+    } catch (err: any) {
+      console.error("Login page error:", err);
+      setError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -135,6 +147,12 @@ export const LoginPage: React.FC = () => {
               )}
             </div>
 
+            {error && (
+              <div className="p-3.5 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-medium text-rose-700 animate-fade-in leading-relaxed">
+                {error}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="relative">
                 <Mail className="absolute left-3.5 top-[38px] h-4 w-4 text-slate-400" />
@@ -162,8 +180,14 @@ export const LoginPage: React.FC = () => {
                 />
               </div>
 
-              <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 font-bold py-2.5 mt-2" rightIcon={<ArrowRight className="h-4.5 w-4.5" />}>
-                Sign In to {selectedCollege || 'SaaS Portal'}
+              <Button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 font-bold py-2.5 mt-2"
+                leftIcon={isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                rightIcon={!isLoading ? <ArrowRight className="h-4.5 w-4.5" /> : null}
+              >
+                {isLoading ? "Signing in..." : `Sign In to ${selectedCollege || 'SaaS Portal'}`}
               </Button>
             </form>
           </>
