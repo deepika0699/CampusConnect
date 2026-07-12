@@ -63,6 +63,15 @@ export interface Event {
   status: 'pending' | 'approved' | 'rejected';
   attendanceTracked: boolean;
   photos?: string[]; // Post-event photo gallery
+  
+  // Phase 1 Additional Fields
+  departmentId?: string;
+  createdBy?: string;
+  eventDate?: string;
+  startTime?: string;
+  endTime?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Registration {

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, Event, Registration, Certificate, Notification, UserRole, Institution } from '../types';
 import { MOCK_USERS, INITIAL_EVENTS, INITIAL_REGISTRATIONS, INITIAL_CERTIFICATES, INITIAL_NOTIFICATIONS, INITIAL_COLLEGES } from '../data/mockData';
-import { auth, db } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -154,6 +154,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
         setColleges(loaded);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'colleges');
     });
 
     return () => unsubColleges();
@@ -186,6 +188,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         loaded.push(d.data() as User);
       });
       setUsers(loaded);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `users?collegeId=${activeCollegeId}`);
     });
 
     // 2. Events Sync - Enforces query filtering by collegeId
@@ -196,6 +200,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         loaded.push(d.data() as Event);
       });
       setEvents(loaded);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `events?collegeId=${activeCollegeId}`);
     });
 
     // 3. Registrations Sync - Enforces query filtering by collegeId
@@ -206,6 +212,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         loaded.push(d.data() as Registration);
       });
       setRegistrations(loaded);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `registrations?collegeId=${activeCollegeId}`);
     });
 
     // 4. Certificates Sync - Enforces query filtering by collegeId
@@ -216,6 +224,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         loaded.push(d.data() as Certificate);
       });
       setCertificates(loaded);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `certificates?collegeId=${activeCollegeId}`);
     });
 
     // 5. Notifications Sync - Enforces query filtering by collegeId
@@ -227,6 +237,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
       loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setNotifications(loaded);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `notifications?collegeId=${activeCollegeId}`);
     });
 
     return () => {
@@ -639,12 +651,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       throw new Error('Only authorized department coordinators can construct events.');
     }
 
+    const nowStr = new Date().toISOString();
+    const eventDateVal = eventData.eventDate || eventData.date || nowStr.split('T')[0];
+    const startTimeVal = eventData.startTime || eventData.time || '10:00';
+    const endTimeVal = eventData.endTime || '12:00';
+    const departmentVal = eventData.department || currentUser.department || 'Computer Science and Engineering (CSE)';
+
     const newEvent: Event = {
       id: `evt_${Date.now()}`,
       title: eventData.title || 'Untitled Campus Event',
       description: eventData.description || '',
       longDescription: eventData.longDescription || '',
-      department: eventData.department || currentUser.department || 'Computer Science and Engineering (CSE)',
+      department: departmentVal,
       coordinatorId: currentUser.id,
       coordinatorName: currentUser.name,
       venue: eventData.venue || 'Central Amphitheater',
@@ -655,16 +673,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       facultyCoordinator: eventData.facultyCoordinator || currentUser.name,
       studentCoordinator: eventData.studentCoordinator || 'Alex Rivera',
       mapLocation: eventData.mapLocation || { lat: 17.7813, lng: 83.3776, name: 'GITAM Campus' },
-      date: eventData.date || new Date().toISOString().split('T')[0],
-      time: eventData.time || '10:00',
-      registrationDeadline: eventData.registrationDeadline || new Date().toISOString().split('T')[0],
+      date: eventDateVal,
+      time: startTimeVal,
+      registrationDeadline: eventData.registrationDeadline || eventDateVal,
       maxParticipants: Number(eventData.maxParticipants) || 100,
       currentParticipants: 0,
       imageUrl: eventData.imageUrl || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&q=80&w=800',
       category: eventData.category || 'tech',
       tags: eventData.tags || [],
       status: 'pending', // Pending Admin approval
-      attendanceTracked: false
+      attendanceTracked: false,
+
+      // Phase 1 Additional Fields
+      departmentId: eventData.departmentId || departmentVal,
+      createdBy: currentUser.id,
+      eventDate: eventDateVal,
+      startTime: startTimeVal,
+      endTime: endTimeVal,
+      createdAt: nowStr,
+      updatedAt: nowStr
     };
 
     setDoc(doc(db, 'events', newEvent.id), newEvent);
@@ -679,7 +706,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateEvent = async (eventId: string, updatedData: Partial<Event>) => {
-    await updateDoc(doc(db, 'events', eventId), updatedData);
+    const changeData = {
+      ...updatedData,
+      updatedAt: new Date().toISOString()
+    };
+    await updateDoc(doc(db, 'events', eventId), changeData);
     addNotification('Event Updated', 'Event details have been successfully revised.', 'success');
   };
 

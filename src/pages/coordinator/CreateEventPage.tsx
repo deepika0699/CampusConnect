@@ -37,6 +37,7 @@ export const CreateEventPage: React.FC = () => {
   const [studentCoordinator, setStudentCoordinator] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  const [endTime, setEndTime] = useState('12:00');
   const [registrationDeadline, setRegistrationDeadline] = useState('');
   const [maxParticipants, setMaxParticipants] = useState('100');
   const [imageUrl, setImageUrl] = useState('');
@@ -71,11 +72,16 @@ export const CreateEventPage: React.FC = () => {
         venue,
         locationDetails,
         collegeName,
+        collegeId: currentUser?.collegeId,
         clubOrg,
         facultyCoordinator,
         studentCoordinator,
         date,
         time,
+        eventDate: date,
+        startTime: time,
+        endTime,
+        departmentId: department,
         registrationDeadline,
         maxParticipants: Number(maxParticipants),
         imageUrl: imageUrl || defaultImg[category],
@@ -228,7 +234,7 @@ export const CreateEventPage: React.FC = () => {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <Input
               label="Event Date"
               type="date"
@@ -242,6 +248,14 @@ export const CreateEventPage: React.FC = () => {
               type="time"
               value={time}
               onChange={e => setTime(e.target.value)}
+              required
+              className="bg-slate-50 border-slate-200 text-xs font-semibold"
+            />
+            <Input
+              label="Event End Time"
+              type="time"
+              value={endTime}
+              onChange={e => setEndTime(e.target.value)}
               required
               className="bg-slate-50 border-slate-200 text-xs font-semibold"
             />
