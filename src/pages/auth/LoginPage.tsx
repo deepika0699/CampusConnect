@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { Input, Select } from '../../components/common/Input';
-import { Sparkles, Shield, User, ArrowRight, Lock, Mail, Building2, HelpCircle, Loader2 } from 'lucide-react';
+import { Sparkles, Shield, User, ArrowRight, Lock, Mail, Building2, HelpCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const { loginAs, loginWithEmail, colleges, users, navigateTo, currentPath } = useApp();
@@ -12,6 +12,7 @@ export const LoginPage: React.FC = () => {
   const [selectedCollege, setSelectedCollege] = useState(colleges[0]?.name || '');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Extract selected role query parameter (e.g. /login?role=student)
   const getSelectedRole = (): string => {
@@ -53,14 +54,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const collegeUsers = users.filter(u => {
-    const matchesCollege = u.collegeName === selectedCollege;
-    if (selectedRoleParam) {
-      return matchesCollege && u.role === selectedRoleParam;
-    }
-    return matchesCollege;
-  });
-
   return (
     <div className="min-h-[70vh] flex items-center justify-center py-10 px-4">
       <Card className="w-full max-w-md p-8 bg-white border border-slate-100 rounded-3xl shadow-xl space-y-6">
@@ -100,53 +93,6 @@ export const LoginPage: React.FC = () => {
           </div>
         ) : (
           <>
-            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-3">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Choose simulation context</span>
-              
-              <Select
-                label="Selected Institution Node"
-                options={colleges.map(c => ({ value: c.name, label: c.name }))}
-                value={selectedCollege}
-                onChange={e => setSelectedCollege(e.target.value)}
-                className="bg-white border-slate-200/60 mb-2 py-1 text-xs"
-              />
-
-              {collegeUsers.length === 0 ? (
-                <div className="text-center p-2">
-                  <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                    No users registered under <strong className="text-slate-600">{selectedCollege}</strong> yet.<br />
-                    Please click <button onClick={() => navigateTo('/register')} className="text-indigo-600 font-bold hover:underline">Register now</button> below to create your profile!
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-between">
-                    <span>Quick Switcher (Registered Accounts)</span>
-                    <span className="font-mono text-indigo-500">{collegeUsers.length} active</span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 max-h-28 overflow-y-auto pr-1">
-                    {collegeUsers.map((u) => (
-                      <button
-                        key={u.id}
-                        onClick={() => loginAs(u.role, selectedCollege)}
-                        className="px-3 py-1.5 bg-white hover:bg-indigo-50 border border-slate-200/60 hover:border-indigo-200 rounded-xl text-xs font-bold text-slate-700 hover:text-indigo-700 transition-all flex items-center justify-between cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className={`h-2 w-2 rounded-full ${
-                            u.role === 'student' ? 'bg-indigo-500' : u.role === 'coordinator' ? 'bg-violet-500' : 'bg-rose-500'
-                          }`} />
-                          <span className="truncate max-w-[150px]">{u.name}</span>
-                        </div>
-                        <span className="text-[9px] uppercase tracking-wider text-slate-400 font-extrabold bg-slate-100 px-1.5 py-0.5 rounded-md">
-                          {u.role}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
             {error && (
               <div className="p-3.5 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-medium text-rose-700 animate-fade-in leading-relaxed">
                 {error}
@@ -154,6 +100,17 @@ export const LoginPage: React.FC = () => {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="relative">
+                <Building2 className="absolute left-3.5 top-[38px] h-4 w-4 text-slate-400" />
+                <Select
+                  label="Select Your Educational Institution"
+                  options={colleges.map(c => ({ value: c.name, label: c.name }))}
+                  value={selectedCollege}
+                  onChange={e => setSelectedCollege(e.target.value)}
+                  className="pl-10 bg-slate-50 border-slate-200"
+                />
+              </div>
+
               <div className="relative">
                 <Mail className="absolute left-3.5 top-[38px] h-4 w-4 text-slate-400" />
                 <Input
@@ -171,13 +128,22 @@ export const LoginPage: React.FC = () => {
                 <Lock className="absolute left-3.5 top-[38px] h-4 w-4 text-slate-400" />
                 <Input
                   label="Password"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="pl-10 bg-slate-50 border-slate-200"
+                  className="pl-10 pr-10 bg-slate-50 border-slate-200"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-[34px] text-slate-400 hover:text-slate-600 transition-colors p-1.5 focus:outline-none"
+                  title={showPassword ? "Hide password" : "Show password"}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+                </button>
               </div>
 
               <Button

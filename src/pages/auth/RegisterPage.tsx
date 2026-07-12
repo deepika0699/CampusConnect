@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { Input, Select } from '../../components/common/Input';
-import { Sparkles, ArrowRight, User, Mail, Lock, GraduationCap, Building, ShieldCheck, Briefcase, Calendar, Plus, Library, Loader2 } from 'lucide-react';
+import { Sparkles, ArrowRight, User, Mail, Lock, GraduationCap, Building, ShieldCheck, Briefcase, Calendar, Plus, Library, Loader2, Eye, EyeOff } from 'lucide-react';
 import { UserRole } from '../../types';
 
 export const RegisterPage: React.FC = () => {
@@ -11,6 +11,7 @@ export const RegisterPage: React.FC = () => {
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Basic Fields
   const [name, setName] = useState('');
@@ -227,13 +228,22 @@ export const RegisterPage: React.FC = () => {
             <Lock className="absolute left-3.5 top-[38px] h-4 w-4 text-slate-400" />
             <Input
               label="Create Secure Password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               placeholder="••••••••"
               required
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="pl-10 bg-slate-50 border-slate-200"
+              className="pl-10 pr-10 bg-slate-50 border-slate-200"
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-[34px] text-slate-400 hover:text-slate-600 transition-colors p-1.5 focus:outline-none"
+              title={showPassword ? "Hide password" : "Show password"}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+            </button>
           </div>
 
           {/* Student Flow Extra Fields */}

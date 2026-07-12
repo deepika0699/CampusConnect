@@ -43,6 +43,7 @@ export interface Event {
   venue: string;
   locationDetails?: string; // details on how to get there
   collegeName: string; // e.g., "GITAM University" or "ANITS"
+  collegeId?: string;
   clubOrg: string; // e.g., "CSI Student Chapter", "Student Council"
   facultyCoordinator: string; // Faculty lead
   studentCoordinator: string; // Student lead
@@ -78,6 +79,7 @@ export interface Registration {
   qrCodeUrl: string; // Mock QR Code reference string
   attendedAt?: string;
   certificateId?: string;
+  collegeId?: string;
 }
 
 export interface Certificate {
@@ -92,6 +94,7 @@ export interface Certificate {
   verificationCode: string; // e.g., "CC-VERT-XXXXX"
   department: string;
   coordinatorName: string;
+  collegeId?: string;
 }
 
 export interface Notification {
@@ -101,6 +104,7 @@ export interface Notification {
   type: 'info' | 'success' | 'warning' | 'certificate';
   read: boolean;
   createdAt: string;
+  collegeId?: string;
 }
 
 export interface AppState {

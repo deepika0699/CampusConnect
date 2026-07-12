@@ -6,7 +6,6 @@ import React, { useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/common/Navbar';
 import { Sidebar } from './components/common/Sidebar';
-import { PersonaSwitcher } from './components/common/PersonaSwitcher';
 
 // Page Imports
 import { LandingPage } from './pages/public/LandingPage';
@@ -168,9 +167,6 @@ const AppContent: React.FC = () => {
           {renderRoute()}
         </main>
       </div>
-
-      {/* Global Interactive Persona Simulator Switcher */}
-      <PersonaSwitcher />
     </div>
   );
 };

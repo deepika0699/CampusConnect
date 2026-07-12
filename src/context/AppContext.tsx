@@ -13,10 +13,13 @@ import {
   doc, 
   setDoc, 
   getDoc, 
+  getDocs,
   onSnapshot, 
   updateDoc, 
   deleteDoc,
-  writeBatch
+  writeBatch,
+  query,
+  where
 } from 'firebase/firestore';
 
 interface AppContextProps {
@@ -30,7 +33,7 @@ interface AppContextProps {
   colleges: Institution[];
   currentPath: string;
   navigateTo: (path: string) => void;
-  loginAs: (role: UserRole | 'guest', collegeName?: string) => void;
+  loginAs: (role: UserRole | 'guest', collegeName?: string, email?: string) => void;
   loginWithEmail: (email: string, collegeName: string, password?: string) => Promise<{ success: boolean; error?: string }>;
   signUpUser: (
     name: string,
@@ -130,12 +133,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => unsubscribe();
   }, []);
 
-  // --- Real-Time Firestore Collection Subscriptions ---
+  // --- Real-Time Colleges Subscription ---
   useEffect(() => {
-    // 1. Colleges Sync
     const unsubColleges = onSnapshot(collection(db, 'colleges'), async (snapshot) => {
       if (snapshot.empty) {
-        // Seed INITIAL_COLLEGES if empty
         try {
           const batch = writeBatch(db);
           INITIAL_COLLEGES.forEach((col) => {
@@ -155,8 +156,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
-    // 2. Users Sync
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+    return () => unsubColleges();
+  }, []);
+
+  // --- Real-Time Firestore Collection Subscriptions with Tenant Isolation ---
+  useEffect(() => {
+    if (!currentUser) {
+      setUsers([]);
+      setEvents([]);
+      setRegistrations([]);
+      setCertificates([]);
+      setNotifications([]);
+      return;
+    }
+
+    // Determine the collegeId to query with
+    const activeCollegeId = currentUser.collegeId || colleges.find(c => c.name === currentUser.collegeName)?.id || '';
+
+    if (!activeCollegeId) {
+      console.warn("Tenant isolation warning: No college ID resolved for user", currentUser.name);
+      return;
+    }
+
+    // 1. Users Sync - Enforces query filtering by collegeId
+    const qUsers = query(collection(db, 'users'), where('collegeId', '==', activeCollegeId));
+    const unsubUsers = onSnapshot(qUsers, (snapshot) => {
       const loaded: User[] = [];
       snapshot.forEach((d) => {
         loaded.push(d.data() as User);
@@ -164,8 +188,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setUsers(loaded);
     });
 
-    // 3. Events Sync
-    const unsubEvents = onSnapshot(collection(db, 'events'), (snapshot) => {
+    // 2. Events Sync - Enforces query filtering by collegeId
+    const qEvents = query(collection(db, 'events'), where('collegeId', '==', activeCollegeId));
+    const unsubEvents = onSnapshot(qEvents, (snapshot) => {
       const loaded: Event[] = [];
       snapshot.forEach((d) => {
         loaded.push(d.data() as Event);
@@ -173,8 +198,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setEvents(loaded);
     });
 
-    // 4. Registrations Sync
-    const unsubRegs = onSnapshot(collection(db, 'registrations'), (snapshot) => {
+    // 3. Registrations Sync - Enforces query filtering by collegeId
+    const qRegs = query(collection(db, 'registrations'), where('collegeId', '==', activeCollegeId));
+    const unsubRegs = onSnapshot(qRegs, (snapshot) => {
       const loaded: Registration[] = [];
       snapshot.forEach((d) => {
         loaded.push(d.data() as Registration);
@@ -182,8 +208,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setRegistrations(loaded);
     });
 
-    // 5. Certificates Sync
-    const unsubCerts = onSnapshot(collection(db, 'certificates'), (snapshot) => {
+    // 4. Certificates Sync - Enforces query filtering by collegeId
+    const qCerts = query(collection(db, 'certificates'), where('collegeId', '==', activeCollegeId));
+    const unsubCerts = onSnapshot(qCerts, (snapshot) => {
       const loaded: Certificate[] = [];
       snapshot.forEach((d) => {
         loaded.push(d.data() as Certificate);
@@ -191,26 +218,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCertificates(loaded);
     });
 
-    // 6. Notifications Sync
-    const unsubNotifs = onSnapshot(collection(db, 'notifications'), (snapshot) => {
+    // 5. Notifications Sync - Enforces query filtering by collegeId
+    const qNotifs = query(collection(db, 'notifications'), where('collegeId', '==', activeCollegeId));
+    const unsubNotifs = onSnapshot(qNotifs, (snapshot) => {
       const loaded: Notification[] = [];
       snapshot.forEach((d) => {
         loaded.push(d.data() as Notification);
       });
-      // Sort notifications by date/time (latest first)
       loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setNotifications(loaded);
     });
 
     return () => {
-      unsubColleges();
       unsubUsers();
       unsubEvents();
       unsubRegs();
       unsubCerts();
       unsubNotifs();
     };
-  }, []);
+  }, [currentUser, currentUser?.collegeId, currentUser?.collegeName, colleges]);
 
   // --- Notification Helper ---
   const addNotification = async (
@@ -224,7 +250,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       message,
       type,
       read: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      collegeId: currentUser?.collegeId || ''
     };
     try {
       await setDoc(doc(db, 'notifications', newNot.id), newNot);
@@ -234,26 +261,61 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // --- Auth Handlers ---
-  const loginAs = (role: UserRole | 'guest', collegeName?: string) => {
+  const loginAs = (role: UserRole | 'guest', collegeName?: string, email?: string) => {
     if (role === 'guest') {
       setCurrentUser(null);
       navigateTo('/');
     } else {
       const defaultCollege = collegeName || colleges[0]?.name || 'ANITS';
-      const foundUser = users.find(u => u.role === role && u.collegeName === defaultCollege);
+      const foundUser = email
+        ? users.find(u => u.email.toLowerCase() === email.toLowerCase())
+        : users.find(u => u.role === role && u.collegeName === defaultCollege);
       
       if (foundUser) {
-        signInWithEmailAndPassword(auth, foundUser.email, foundUser.password || 'password')
+        const userPassword = foundUser.password || 'password';
+        signInWithEmailAndPassword(auth, foundUser.email, userPassword)
           .then(() => {
             setCurrentUser(foundUser);
-            addNotification('Welcome back!', `Logged in successfully as ${foundUser.name} (${role.toUpperCase()}) at ${defaultCollege}.`, 'success');
-            if (role === 'student') navigateTo('/student/dashboard');
-            else if (role === 'coordinator') navigateTo('/coordinator/dashboard');
-            else if (role === 'admin') navigateTo('/admin/dashboard');
+            addNotification('Welcome back!', `Logged in successfully as ${foundUser.name} (${foundUser.role.toUpperCase()}) at ${foundUser.collegeName}.`, 'success');
+            if (foundUser.role === 'student') navigateTo('/student/dashboard');
+            else if (foundUser.role === 'coordinator') navigateTo('/coordinator/dashboard');
+            else if (foundUser.role === 'admin') navigateTo('/admin/dashboard');
           })
-          .catch((err) => {
-            console.error("loginAs Auth failed", err);
-            addNotification('Login Error', `Firebase Auth failed for ${foundUser.name}.`, 'warning');
+          .catch(async (err) => {
+            console.error("loginAs Auth failed, trying self-healing signup:", err);
+            if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+              try {
+                const userCredential = await createUserWithEmailAndPassword(auth, foundUser.email, userPassword);
+                const newUid = userCredential.user.uid;
+                
+                if (newUid !== foundUser.id) {
+                  const migratedUser = {
+                    ...foundUser,
+                    id: newUid,
+                    uid: newUid
+                  };
+                  await setDoc(doc(db, 'users', newUid), cleanObj(migratedUser));
+                  try {
+                    await deleteDoc(doc(db, 'users', foundUser.id));
+                  } catch (delErr) {
+                    console.warn("Could not delete old user document during UID migration:", delErr);
+                  }
+                  setCurrentUser(migratedUser);
+                } else {
+                  setCurrentUser(foundUser);
+                }
+                
+                addNotification('Welcome back!', `Successfully restored login as ${foundUser.name}.`, 'success');
+                if (foundUser.role === 'student') navigateTo('/student/dashboard');
+                else if (foundUser.role === 'coordinator') navigateTo('/coordinator/dashboard');
+                else if (foundUser.role === 'admin') navigateTo('/admin/dashboard');
+              } catch (signUpErr: any) {
+                console.error("Self-healing signup also failed:", signUpErr);
+                addNotification('Login Error', `Incorrect password or credential repair failed: ${signUpErr.message}`, 'warning');
+              }
+            } else {
+              addNotification('Login Error', `Firebase Auth failed: ${err.message}`, 'warning');
+            }
           });
       } else {
         addNotification(
@@ -271,7 +333,60 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: false, error: "Password is required for secure authentication." };
       }
       
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      let foundUser: User | undefined = undefined;
+      try {
+        const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase()));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const matchedDocs: User[] = [];
+          snap.forEach(d => {
+            matchedDocs.push(d.data() as User);
+          });
+          foundUser = matchedDocs.find(u => u.collegeName === collegeName);
+        }
+      } catch (findErr) {
+        console.warn("Could not pre-fetch user doc for login:", findErr);
+      }
+
+      let userCredential;
+      try {
+        userCredential = await signInWithEmailAndPassword(auth, email, password);
+      } catch (authErr: any) {
+        if ((authErr.code === 'auth/invalid-credential' || authErr.code === 'auth/user-not-found') && foundUser && foundUser.password === password) {
+          console.log("loginWithEmail auth mismatch, attempting self-healing repair...");
+          try {
+            userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const newUid = userCredential.user.uid;
+            
+            if (newUid !== foundUser.id) {
+              const migratedUser = {
+                ...foundUser,
+                id: newUid,
+                uid: newUid
+              };
+              await setDoc(doc(db, 'users', newUid), cleanObj(migratedUser));
+              try {
+                await deleteDoc(doc(db, 'users', foundUser.id));
+              } catch (delErr) {
+                console.warn("Could not delete old user document during UID migration:", delErr);
+              }
+              setCurrentUser(migratedUser);
+            } else {
+              setCurrentUser(foundUser);
+            }
+            addNotification('Welcome back!', `Logged in successfully as ${foundUser.name}.`, 'success');
+            if (foundUser.role === 'student') navigateTo('/student/dashboard');
+            else if (foundUser.role === 'coordinator') navigateTo('/coordinator/dashboard');
+            else if (foundUser.role === 'admin') navigateTo('/admin/dashboard');
+            return { success: true };
+          } catch (signUpErr: any) {
+            console.error("Self-healing signup failed:", signUpErr);
+            return { success: false, error: `Credential repair failed: ${signUpErr.message}` };
+          }
+        }
+        throw authErr;
+      }
+
       const uid = userCredential.user.uid;
 
       const userDoc = await getDoc(doc(db, 'users', uid));
@@ -474,7 +589,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       studentEmail: currentUser.email,
       registeredAt: new Date().toISOString(),
       status: 'registered',
-      qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=CC-REG-${eventId}-${currentUser.id}-registered`
+      qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=CC-REG-${eventId}-${currentUser.id}-registered`,
+      collegeId: currentUser.collegeId
     };
 
     setDoc(doc(db, 'registrations', newReg.id), newReg);
@@ -533,7 +649,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       coordinatorName: currentUser.name,
       venue: eventData.venue || 'Central Amphitheater',
       locationDetails: eventData.locationDetails || '',
-      collegeName: eventData.collegeName || 'GITAM University',
+      collegeName: currentUser.collegeName || eventData.collegeName || 'GITAM University',
+      collegeId: currentUser.collegeId || '',
       clubOrg: eventData.clubOrg || 'Student Activities Council',
       facultyCoordinator: eventData.facultyCoordinator || currentUser.name,
       studentCoordinator: eventData.studentCoordinator || 'Alex Rivera',
@@ -641,7 +758,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           issuedAt: new Date().toISOString(),
           verificationCode: `CC-VERT-${Math.random().toString(36).substr(2, 7).toUpperCase()}`,
           department: eventObj?.department || 'University Division',
-          coordinatorName: eventObj?.coordinatorName || 'Department Head'
+          coordinatorName: eventObj?.coordinatorName || 'Department Head',
+          collegeId: reg.collegeId
         };
 
         await setDoc(doc(db, 'certificates', certId), newCert);
