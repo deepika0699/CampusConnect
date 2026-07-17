@@ -94,6 +94,14 @@ export const EventCard: React.FC<EventCardProps> = ({
             <span className="text-slate-600">{event.department}</span>
             <span>•</span>
             <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-normal normal-case">{event.clubOrg}</span>
+            <span>•</span>
+            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-normal uppercase ${
+              event.visibility === 'open' 
+                ? 'bg-indigo-50 border border-indigo-100 text-indigo-700 font-extrabold' 
+                : 'bg-slate-100 border border-slate-100 text-slate-600'
+            }`}>
+              {event.visibility === 'open' ? 'Open' : 'Campus-Only'}
+            </span>
           </div>
 
           <h3 className="text-base font-bold text-slate-800 group-hover:text-indigo-600 transition-colors leading-snug line-clamp-1">
@@ -150,7 +158,7 @@ export const EventCard: React.FC<EventCardProps> = ({
           )}
 
           {/* Role specific dynamic controllers */}
-          {user?.role === 'student' && onRegister && (
+          {((user === null && event.visibility === 'open') || user?.role === 'student') && onRegister && (
             <>
               {isRegistered ? (
                 <div className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 font-semibold text-xs flex items-center justify-center gap-1 flex-1">

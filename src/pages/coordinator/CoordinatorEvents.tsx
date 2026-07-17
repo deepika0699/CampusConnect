@@ -16,6 +16,7 @@ export const CoordinatorEvents: React.FC = () => {
   const [editVenue, setEditVenue] = useState('');
   const [editMaxCapacity, setEditMaxCapacity] = useState('100');
   const [editDate, setEditDate] = useState('');
+  const [editVisibility, setEditVisibility] = useState<'campus_only' | 'open'>('campus_only');
 
   if (!currentUser) return null;
 
@@ -28,6 +29,7 @@ export const CoordinatorEvents: React.FC = () => {
     setEditVenue(evt.venue);
     setEditMaxCapacity(evt.maxParticipants.toString());
     setEditDate(evt.date);
+    setEditVisibility(evt.visibility || 'campus_only');
   };
 
   const handleSaveEdit = () => {
@@ -36,7 +38,8 @@ export const CoordinatorEvents: React.FC = () => {
       title: editTitle,
       venue: editVenue,
       maxParticipants: Number(editMaxCapacity),
-      date: editDate
+      date: editDate,
+      visibility: editVisibility
     });
     setEditingEvent(null);
   };
@@ -72,15 +75,24 @@ export const CoordinatorEvents: React.FC = () => {
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-4">
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border capitalize ${
-                    evt.status === 'approved' 
-                      ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
-                      : evt.status === 'rejected' 
-                      ? 'bg-rose-50 border-rose-100 text-rose-700' 
-                      : 'bg-amber-50 border-amber-100 text-amber-700'
-                  }`}>
-                    {evt.status}
-                  </span>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border capitalize ${
+                      evt.status === 'approved' 
+                        ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
+                        : evt.status === 'rejected' 
+                        ? 'bg-rose-50 border-rose-100 text-rose-700' 
+                        : 'bg-amber-50 border-amber-100 text-amber-700'
+                    }`}>
+                      {evt.status}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border capitalize ${
+                      evt.visibility === 'open' 
+                        ? 'bg-indigo-50 border-indigo-100 text-indigo-700' 
+                        : 'bg-slate-50 border-slate-100 text-slate-700'
+                    }`}>
+                      {evt.visibility === 'open' ? 'Open' : 'Campus-Only'}
+                    </span>
+                  </div>
                   <span className="text-[10px] text-slate-400 font-bold uppercase">{evt.category}</span>
                 </div>
                 
@@ -141,6 +153,16 @@ export const CoordinatorEvents: React.FC = () => {
             label="Revise Room / Venue"
             value={editVenue}
             onChange={e => setEditVenue(e.target.value)}
+            className="bg-slate-50 border-slate-200"
+          />
+          <Select
+            label="Revise Event Visibility Tier"
+            options={[
+              { value: 'campus_only', label: 'Campus-Only (Restricted)' },
+              { value: 'open', label: 'Open Inter-College (Public)' }
+            ]}
+            value={editVisibility}
+            onChange={e => setEditVisibility(e.target.value as any)}
             className="bg-slate-50 border-slate-200"
           />
           <div className="grid grid-cols-2 gap-4">

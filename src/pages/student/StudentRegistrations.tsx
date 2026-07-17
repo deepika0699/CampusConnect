@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Calendar, MapPin, Ticket, AlertCircle, RefreshCw, XCircle } from 'lucide-react';
+import { CountdownTimer } from '../../components/common/CountdownTimer';
 
 export const StudentRegistrations: React.FC = () => {
   const { currentUser, registrations, cancelRegistration, navigateTo, events } = useApp();
@@ -96,6 +97,14 @@ export const StudentRegistrations: React.FC = () => {
                     <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
                       Reservation ID: <span className="font-mono text-slate-600">{reg.id}</span>
                     </p>
+                    {reg.status === 'registered' && (
+                      <div className="mt-2.5">
+                        <CountdownTimer 
+                          date={ev?.date || reg.eventDate} 
+                          time={ev?.time || '10:00'} 
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* Actions buttons */}

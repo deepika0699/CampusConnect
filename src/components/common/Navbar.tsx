@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Bell, LogOut, ShieldCheck, User, Calendar, BookOpen, Award, Sparkles, Menu, X, Check } from 'lucide-react';
+import { Bell, LogOut, ShieldCheck, User, Calendar, BookOpen, Award, Sparkles, Menu, X, Check, ChevronDown, LayoutDashboard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface NavbarProps {
@@ -10,6 +10,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
   const { currentUser, notifications, logout, markNotificationRead, clearNotification, navigateTo } = useApp();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -146,28 +147,73 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
                 </AnimatePresence>
               </div>
 
-              {/* User Avatar & Department Badge */}
-              <div className="flex items-center gap-3 border-l border-slate-100 pl-4">
-                <div className="hidden sm:flex flex-col text-right">
-                  <span className="text-sm font-semibold text-slate-800 leading-none">{currentUser.name}</span>
-                  <span className="mt-1 text-[10px] font-medium text-indigo-600 bg-indigo-50/80 px-2 py-0.5 rounded-full inline-block self-end uppercase tracking-wider">
-                    {currentUser.role}
-                  </span>
-                </div>
-                <img
-                  src={currentUser.avatarUrl}
-                  alt={currentUser.name}
-                  className="h-9 w-9 rounded-xl object-cover ring-2 ring-indigo-50"
-                />
-                
-                {/* Logout Button */}
+              {/* User Profile Dropdown */}
+              <div className="relative border-l border-slate-100 pl-4">
                 <button
-                  onClick={logout}
-                  title="Logout"
-                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                  onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                  className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition-all cursor-pointer text-left focus:outline-none"
                 >
-                  <LogOut className="h-5 w-5" />
+                  <div className="hidden sm:flex flex-col text-right">
+                    <span className="text-sm font-semibold text-slate-800 leading-none">{currentUser.name}</span>
+                    <span className="mt-1 text-[10px] font-medium text-indigo-600 bg-indigo-50/80 px-2 py-0.5 rounded-full inline-block self-end uppercase tracking-wider">
+                      {currentUser.role}
+                    </span>
+                  </div>
+                  <img
+                    src={currentUser.avatarUrl}
+                    alt={currentUser.name}
+                    className="h-9 w-9 rounded-xl object-cover ring-2 ring-indigo-50"
+                  />
+                  <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />
                 </button>
+
+                {/* Profile Dropdown Menu */}
+                <AnimatePresence>
+                  {showProfileDropdown && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowProfileDropdown(false)} />
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 mt-2.5 w-56 rounded-2xl border border-slate-100 bg-white shadow-xl z-50 overflow-hidden py-1.5"
+                      >
+                        <div className="px-4 py-2.5 border-b border-slate-50 sm:hidden">
+                          <p className="text-xs font-bold text-slate-800 truncate">{currentUser.name}</p>
+                          <span className="text-[10px] text-indigo-600 uppercase font-bold tracking-wider">{currentUser.role}</span>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setShowProfileDropdown(false);
+                            const roleRoutes = {
+                              student: '/student/dashboard',
+                              coordinator: '/coordinator/dashboard',
+                              admin: '/admin/dashboard'
+                            };
+                            navigateTo(roleRoutes[currentUser.role as keyof typeof roleRoutes] || '/');
+                          }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors cursor-pointer text-left"
+                        >
+                          <LayoutDashboard className="h-4 w-4 text-slate-400 shrink-0" />
+                          <span>My Dashboard</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setShowProfileDropdown(false);
+                            logout();
+                          }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer text-left border-t border-slate-50 mt-1 pt-2"
+                        >
+                          <LogOut className="h-4 w-4 text-rose-500 shrink-0" />
+                          <span>Logout</span>
+                        </button>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </div>
             </>
           ) : (

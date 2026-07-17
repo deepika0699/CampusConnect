@@ -4,6 +4,7 @@ import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { Calendar, MapPin, Users, Clock, ArrowLeft, Send, Sparkles, MessageSquare, Compass, Award, ShieldAlert } from 'lucide-react';
 import { motion } from 'motion/react';
+import { CountdownTimer } from '../../components/common/CountdownTimer';
 
 export const EventDetailsPage: React.FC = () => {
   const { currentPath, events, currentUser, registrations, registerForEvent, cancelRegistration, navigateTo } = useApp();
@@ -132,6 +133,22 @@ export const EventDetailsPage: React.FC = () => {
                   <span className="px-2.5 py-1 rounded-lg bg-white/20 backdrop-blur-md text-[10px] font-semibold text-white border border-white/10">
                     {event.clubOrg}
                   </span>
+                  <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
+                    event.visibility === 'open'
+                      ? 'bg-emerald-600/90 border-emerald-400/30 text-white'
+                      : 'bg-amber-600/90 border-amber-400/30 text-white'
+                  }`}>
+                    {event.visibility === 'open' ? 'Open Inter-College' : 'Campus-Exclusive'}
+                  </span>
+                  <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
+                    event.status === 'approved'
+                      ? 'bg-teal-600/90 border-teal-400/30 text-white'
+                      : event.status === 'pending'
+                      ? 'bg-sky-600/90 border-sky-400/30 text-white'
+                      : 'bg-rose-600/90 border-rose-400/30 text-white'
+                  }`}>
+                    {event.status.toUpperCase()}
+                  </span>
                 </div>
                 <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight">{event.title}</h1>
                 <p className="text-xs sm:text-sm text-slate-200 font-medium">
@@ -151,17 +168,17 @@ export const EventDetailsPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex flex-col gap-1 sm:border-r border-slate-200/50 pr-2">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-widest">Time</span>
+                  <span className="text-[10px] text-slate-400 uppercase tracking-widest">Start Time</span>
                   <span className="flex items-center gap-1.5 font-bold text-slate-800">
                     <Clock className="h-4.5 w-4.5 text-indigo-500" />
-                    {event.time}
+                    {event.startTime || event.time}
                   </span>
                 </div>
                 <div className="flex flex-col gap-1 border-r border-slate-200/50 pr-2">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-widest">Campus Venue</span>
-                  <span className="flex items-center gap-1.5 font-bold text-slate-800 truncate" title={event.venue}>
-                    <MapPin className="h-4.5 w-4.5 text-indigo-500 shrink-0" />
-                    {event.venue}
+                  <span className="text-[10px] text-slate-400 uppercase tracking-widest">End Time</span>
+                  <span className="flex items-center gap-1.5 font-bold text-slate-800">
+                    <Clock className="h-4.5 w-4.5 text-indigo-500" />
+                    {event.endTime || '12:00 PM'}
                   </span>
                 </div>
                 <div className="flex flex-col gap-1 pr-2">
@@ -187,13 +204,17 @@ export const EventDetailsPage: React.FC = () => {
                     <span className="h-1.5 w-1.5 rounded-full bg-indigo-600"></span> Academic Coordinators
                   </h4>
                   <div className="space-y-2 text-xs">
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 font-medium">Faculty Coordinator</span>
-                      <span className="font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs">{event.facultyCoordinator}</span>
+                    <div className="flex justify-between items-center gap-4">
+                      <span className="text-slate-400 font-medium whitespace-nowrap">Coordinator</span>
+                      <span className="font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs text-right truncate max-w-[150px]">{event.coordinatorName}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 font-medium">Student Coordinator</span>
-                      <span className="font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs">{event.studentCoordinator}</span>
+                    <div className="flex justify-between items-center gap-4">
+                      <span className="text-slate-400 font-medium whitespace-nowrap">Faculty Coordinator</span>
+                      <span className="font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs text-right truncate max-w-[150px]">{event.facultyCoordinator}</span>
+                    </div>
+                    <div className="flex justify-between items-center gap-4">
+                      <span className="text-slate-400 font-medium whitespace-nowrap">Student Coordinator</span>
+                      <span className="font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs text-right truncate max-w-[150px]">{event.studentCoordinator}</span>
                     </div>
                   </div>
                 </div>
@@ -210,8 +231,16 @@ export const EventDetailsPage: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-400 font-medium">Participant Ceiling</span>
-                      <span className="font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs">{event.maxParticipants} students max</span>
+                      <span className="text-slate-400 font-medium">Maximum Participants</span>
+                      <span className="font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs">{event.maxParticipants} max</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 font-medium">Current Participants</span>
+                      <span className="font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs">{event.currentParticipants} reserved</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 font-medium">Remaining Seats</span>
+                      <span className="font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-slate-100 shadow-xs">{event.maxParticipants - event.currentParticipants} slots left</span>
                     </div>
                   </div>
                 </div>
@@ -299,14 +328,47 @@ export const EventDetailsPage: React.FC = () => {
               <p className="text-[10px] text-slate-400 font-medium">Verify credentials and manage reservations.</p>
             </div>
 
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100/80 flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Countdown</span>
+              <CountdownTimer date={event.date} time={event.time} />
+            </div>
+
             {currentUser === null ? (
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center space-y-3">
-                <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                  You are viewing this event as a guest. Please sign in to book your seat.
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 border-b border-slate-50 pb-2">
+                  <span>Available seats:</span>
+                  <span className="text-indigo-600 font-extrabold">{event.maxParticipants - event.currentParticipants} slots left</span>
+                </div>
+
+                {isDeadlinePassed ? (
+                  <Button
+                    variant="primary"
+                    disabled
+                    className="w-full bg-rose-50 text-rose-600 border border-rose-100 font-bold"
+                  >
+                    Registration Closed
+                  </Button>
+                ) : isFull ? (
+                  <Button
+                    variant="primary"
+                    disabled
+                    className="w-full bg-rose-50 text-rose-600 border border-rose-100 font-bold"
+                  >
+                    Event Full
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    className="w-full bg-indigo-600 font-bold text-white hover:bg-indigo-700"
+                    onClick={() => registerForEvent(event.id)}
+                  >
+                    Register
+                  </Button>
+                )}
+
+                <p className="text-[10px] text-slate-400 text-center font-medium leading-relaxed">
+                  You are viewing this event as a guest. Clicking Register will prompt you to authenticate.
                 </p>
-                <Button variant="primary" size="sm" className="w-full" onClick={() => navigateTo('/login')}>
-                  Sign In to Register
-                </Button>
               </div>
             ) : currentUser.role !== 'student' ? (
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center space-y-2">
@@ -341,41 +403,60 @@ export const EventDetailsPage: React.FC = () => {
                         <p className="text-[10px] text-slate-400 font-medium">Verified Registration ID: {userReg.id}</p>
                       </div>
 
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-3 py-1 rounded-full bg-indigo-100/30 text-indigo-700">
-                        Status: {userReg.status.toUpperCase()}
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-3 py-1 rounded-full bg-emerald-100/40 text-emerald-800 border border-emerald-200/50">
+                        Status: Registered
                       </div>
                     </div>
 
-                    <Button
-                      variant="outline"
-                      className="w-full border-rose-200 hover:bg-rose-50 text-rose-600 text-xs font-semibold"
-                      onClick={() => cancelRegistration(userReg.id)}
-                    >
-                      Cancel Reservation
-                    </Button>
+                    {/* Displays smart button showing 'Registered' alongside cancel action */}
+                    <div className="space-y-2">
+                      <Button
+                        variant="primary"
+                        disabled
+                        className="w-full bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold text-xs"
+                      >
+                        Registered
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="w-full border-rose-200 hover:bg-rose-50 text-rose-600 text-xs font-semibold"
+                        onClick={() => cancelRegistration(userReg.id)}
+                      >
+                        Cancel Reservation
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-500 border-b border-slate-50 pb-2">
                       <span>Available seats:</span>
-                      <span className="text-slate-800 font-bold">{event.maxParticipants - event.currentParticipants} slots left</span>
+                      <span className="text-indigo-600 font-extrabold">{event.maxParticipants - event.currentParticipants} slots left</span>
                     </div>
 
+                    {/* Smart button for Registered Student */}
                     {isDeadlinePassed ? (
-                      <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-center font-bold rounded-2xl text-xs">
-                        Registration Locked: Deadline passed on {event.registrationDeadline}
-                      </div>
+                      <Button
+                        variant="primary"
+                        disabled
+                        className="w-full bg-rose-50 text-rose-500 border border-rose-200 font-bold"
+                      >
+                        Registration Closed
+                      </Button>
                     ) : isFull ? (
-                      <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-center font-bold rounded-2xl text-xs">
-                        This event is completely fully booked.
-                      </div>
+                      <Button
+                        variant="primary"
+                        disabled
+                        className="w-full bg-rose-50 text-rose-500 border border-rose-200 font-bold"
+                      >
+                        Event Full
+                      </Button>
                     ) : (
                       <Button
                         variant="primary"
-                        className="w-full"
+                        className="w-full bg-indigo-600 font-bold text-white hover:bg-indigo-700"
                         onClick={() => registerForEvent(event.id)}
                       >
-                        Confirm My Seat
+                        Register
                       </Button>
                     )}
                   </div>

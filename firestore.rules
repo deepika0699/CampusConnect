@@ -13,7 +13,9 @@ service cloud.firestore {
     
     // Events
     match /events/{eventId} {
-      allow read, write: if true;
+      allow read: if (resource.data.visibility == 'open' && resource.data.status == 'approved') || 
+                  (request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.collegeId == resource.data.collegeId);
+      allow write: if request.auth != null;
     }
     
     // Registrations

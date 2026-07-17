@@ -8,7 +8,7 @@ import { Search, Map, Grid, Sparkles, SlidersHorizontal, MapPin, Compass, Cpu } 
 import { motion, AnimatePresence } from 'motion/react';
 
 export const EventDiscoveryPage: React.FC = () => {
-  const { events, currentUser, registerForEvent, navigateTo, colleges } = useApp();
+  const { events, currentUser, registerForEvent, navigateTo, colleges, registrations } = useApp();
 
   // Find current college departments
   const myCollegeObj = colleges.find(c => c.name === currentUser?.collegeName);
@@ -44,8 +44,16 @@ export const EventDiscoveryPage: React.FC = () => {
   const filteredEvents = events.filter(evt => {
     if (evt.status !== 'approved') return false;
     
-    // Private events: Must belong strictly to the logged-in user's college
-    if (!currentUser || evt.collegeName !== currentUser.collegeName) return false;
+    // Access rule:
+    if (currentUser) {
+      // Logged-in user: see own college events OR approved open events from other colleges
+      const isOwnCollege = evt.collegeId === currentUser.collegeId || evt.collegeName === currentUser.collegeName;
+      const isOpenEvent = evt.visibility === 'open';
+      if (!isOwnCollege && !isOpenEvent) return false;
+    } else {
+      // Guest: can ONLY view approved events where visibility = 'open'
+      if (evt.visibility !== 'open') return false;
+    }
     
     const matchesSearch = evt.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           evt.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -53,8 +61,9 @@ export const EventDiscoveryPage: React.FC = () => {
                           
     const matchesCategory = selectedCategory === 'all' || evt.category === selectedCategory;
     const matchesDepartment = selectedDepartment === 'all' || evt.department === selectedDepartment;
+    const matchesCollege = selectedCollege === 'all' || evt.collegeId === selectedCollege || evt.collegeName === selectedCollege;
     
-    return matchesSearch && matchesCategory && matchesDepartment;
+    return matchesSearch && matchesCategory && matchesDepartment && matchesCollege;
   });
 
   // Simple Mock AI Recommendations System
@@ -65,7 +74,14 @@ export const EventDiscoveryPage: React.FC = () => {
     setTimeout(() => {
       const keywords = interestKeywords.toLowerCase().split(/[ ,]+/);
       const scored = events
-        .filter(evt => evt.status === 'approved' && (!currentUser || evt.collegeName === currentUser.collegeName))
+        .filter(evt => {
+          if (evt.status !== 'approved') return false;
+          if (currentUser) {
+            return evt.collegeId === currentUser.collegeId || evt.visibility === 'open';
+          } else {
+            return evt.visibility === 'open';
+          }
+        })
         .map(evt => {
           let score = 0;
           const searchSpace = `${evt.title} ${evt.description} ${evt.tags.join(' ')} ${evt.category}`.toLowerCase();
@@ -83,39 +99,14 @@ export const EventDiscoveryPage: React.FC = () => {
     }, 800);
   };
 
-  if (!currentUser) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center py-12 px-4">
-        <div className="w-full max-w-md text-center bg-white border border-slate-100 rounded-3xl p-8 shadow-xl space-y-6 animate-fade-in">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 shadow shadow-indigo-100">
-            <Compass className="h-7 w-7" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-xl font-extrabold text-slate-800 tracking-tight">Institutional Portal Required</h2>
-            <p className="text-xs text-slate-500 leading-relaxed font-medium">
-              CampusConnect is an exclusive, private multi-campus platform. Events are hosted securely and are visible only to verified students and coordinators within each registered institution.
-            </p>
-          </div>
-          <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl text-left space-y-2.5">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center">To see your campus events</span>
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="primary" size="sm" className="w-full bg-indigo-600 font-bold py-2" onClick={() => navigateTo('/login')}>
-                Sign In
-              </Button>
-              <Button variant="outline" size="sm" className="w-full font-bold border-slate-200 py-2" onClick={() => navigateTo('/register')}>
-                Join Platform
-              </Button>
-            </div>
-          </div>
-          <div className="text-xs text-slate-400">
-            Want to register your institution? <button onClick={() => navigateTo('/')} className="text-indigo-600 font-bold hover:underline cursor-pointer">Register Institution</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const activeCollegeEvents = events.filter(e => e.collegeName === currentUser.collegeName);
+  const activeEvents = events.filter(evt => {
+    if (evt.status !== 'approved') return false;
+    if (currentUser) {
+      return (evt.collegeId === currentUser.collegeId || evt.collegeName === currentUser.collegeName) || evt.visibility === 'open';
+    } else {
+      return evt.visibility === 'open';
+    }
+  });
 
   return (
     <div className="space-y-8 py-6">
@@ -124,7 +115,13 @@ export const EventDiscoveryPage: React.FC = () => {
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="space-y-1">
             <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Discover Campus Events</h1>
-            <p className="text-xs text-slate-400 font-medium">Explore approved academic panels, athletic fests, career fairs, and hackathons inside <span className="font-bold text-indigo-600">{currentUser.collegeName}</span>.</p>
+            <p className="text-xs text-slate-400 font-semibold leading-relaxed">
+              {currentUser ? (
+                <>Explore approved academic panels, fests, and hackathons inside <span className="font-bold text-indigo-600">{currentUser.collegeName}</span>, plus open inter-college events.</>
+              ) : (
+                <>Explore and participate in open inter-college hackathons, fests, and workshops across multiple campuses.</>
+              )}
+            </p>
           </div>
 
           {/* Toggle View Controller */}
@@ -151,7 +148,7 @@ export const EventDiscoveryPage: React.FC = () => {
         </div>
 
         {/* Filters Matrix */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${currentUser ? 'md:grid-cols-5' : 'md:grid-cols-3'} gap-3`}>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <input
@@ -177,24 +174,34 @@ export const EventDiscoveryPage: React.FC = () => {
             className="bg-slate-50 border-slate-200 text-xs font-semibold py-1.5"
           />
 
-          <Select
-            options={
-              myCollegeDepts.length === 0
-                ? [{ value: 'all', label: 'No Departments Configured' }]
-                : [
-                    { value: 'all', label: 'All Departments' },
-                    ...myCollegeDepts.map(d => ({ value: d, label: d }))
-                  ]
-            }
-            value={selectedDepartment}
-            onChange={e => setSelectedDepartment(e.target.value)}
-            disabled={myCollegeDepts.length === 0}
-            className={`bg-slate-50 border-slate-200 text-xs font-semibold py-1.5 ${myCollegeDepts.length === 0 ? 'opacity-60 cursor-not-allowed' : ''}`}
-          />
+          {currentUser && (
+            <>
+              <Select
+                options={
+                  myCollegeDepts.length === 0
+                    ? [{ value: 'all', label: 'No Departments Configured' }]
+                    : [
+                        { value: 'all', label: 'All Departments' },
+                        ...myCollegeDepts.map(d => ({ value: d, label: d }))
+                      ]
+                }
+                value={selectedDepartment}
+                onChange={e => setSelectedDepartment(e.target.value)}
+                disabled={myCollegeDepts.length === 0}
+                className={`bg-slate-50 border-slate-200 text-xs font-semibold py-1.5 ${myCollegeDepts.length === 0 ? 'opacity-60 cursor-not-allowed' : ''}`}
+              />
 
-          <div className="flex items-center justify-center px-3 py-1.5 bg-indigo-50 border border-indigo-100/50 rounded-xl text-xs font-bold text-indigo-700 select-none">
-            🏫 {currentUser.collegeName}
-          </div>
+              <Select
+                options={[
+                  { value: 'all', label: 'All Institutions' },
+                  ...colleges.map(c => ({ value: c.id, label: c.name }))
+                ]}
+                value={selectedCollege}
+                onChange={e => setSelectedCollege(e.target.value)}
+                className="bg-slate-50 border-slate-200 text-xs font-semibold py-1.5"
+              />
+            </>
+          )}
 
           {/* Quick reset button */}
           <Button
@@ -205,6 +212,7 @@ export const EventDiscoveryPage: React.FC = () => {
               setSearchQuery('');
               setSelectedCategory('all');
               setSelectedDepartment('all');
+              setSelectedCollege('all');
             }}
           >
             Clear Filters
@@ -226,12 +234,12 @@ export const EventDiscoveryPage: React.FC = () => {
                 exit={{ opacity: 0 }}
                 className="grid grid-cols-1 sm:grid-cols-2 gap-6"
               >
-                {activeCollegeEvents.length === 0 ? (
+                {activeEvents.length === 0 ? (
                   <div className="col-span-full py-16 text-center bg-white border border-slate-100 rounded-3xl p-8 shadow-sm">
                     <SlidersHorizontal className="h-10 w-10 text-slate-300 mx-auto mb-3" />
                     <h3 className="text-base font-bold text-slate-800">No campus events found.</h3>
                     <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
-                      Department coordinators at {currentUser.collegeName} have not registered any upcoming events yet. Check back shortly.
+                      Department coordinators {currentUser ? `at ${currentUser.collegeName}` : ''} have not registered any upcoming events yet. Check back shortly.
                     </p>
                   </div>
                 ) : filteredEvents.length === 0 ? (
@@ -239,20 +247,26 @@ export const EventDiscoveryPage: React.FC = () => {
                     <SlidersHorizontal className="h-10 w-10 text-slate-300 mx-auto mb-3" />
                     <h3 className="text-base font-bold text-slate-800">No events matched your search</h3>
                     <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
-                      Try revising your filters or changing search keywords to discover listings inside {currentUser.collegeName}.
+                      Try revising your filters or changing search keywords to discover listings {currentUser ? `inside ${currentUser.collegeName}` : 'across our partner colleges'}.
                     </p>
                   </div>
                 ) : (
-                  filteredEvents.map((evt, idx) => (
-                    <EventCard
-                      key={evt.id}
-                      event={evt}
-                      user={currentUser}
-                      onRegister={registerForEvent}
-                      onClickDetails={(id) => navigateTo(`/events/${id}`)}
-                      delay={idx * 0.08}
-                    />
-                  ))
+                  filteredEvents.map((evt, idx) => {
+                    const isReg = registrations.some(
+                      r => r.eventId === evt.id && r.studentId === currentUser?.id && r.status !== 'cancelled'
+                    );
+                    return (
+                      <EventCard
+                        key={evt.id}
+                        event={evt}
+                        user={currentUser}
+                        isRegistered={isReg}
+                        onRegister={registerForEvent}
+                        onClickDetails={(id) => navigateTo(`/events/${id}`)}
+                        delay={idx * 0.08}
+                      />
+                    );
+                  })
                 )}
               </motion.div>
             ) : (

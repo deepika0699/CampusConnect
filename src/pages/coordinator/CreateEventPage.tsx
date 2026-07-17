@@ -42,6 +42,7 @@ export const CreateEventPage: React.FC = () => {
   const [maxParticipants, setMaxParticipants] = useState('100');
   const [imageUrl, setImageUrl] = useState('');
   const [tagsInput, setTagsInput] = useState('');
+  const [visibility, setVisibility] = useState<'campus_only' | 'open'>('campus_only');
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -86,6 +87,7 @@ export const CreateEventPage: React.FC = () => {
         maxParticipants: Number(maxParticipants),
         imageUrl: imageUrl || defaultImg[category],
         tags,
+        visibility,
         mapLocation: {
           lat: 17.7812 + (Math.random() - 0.5) * 0.01,
           lng: 83.3768 + (Math.random() - 0.5) * 0.01,
@@ -151,14 +153,25 @@ export const CreateEventPage: React.FC = () => {
 
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2 pt-2">Campus Affiliation & Leaders</h3>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
               label="Campus / College Ecosystem"
               type="text"
               value={collegeName}
               disabled
               className="bg-slate-100 border-slate-200 text-slate-500 font-bold"
-              helperText="Events are securely locked to your registered institution."
+              helperText="Locked to your institution."
+            />
+            <Select
+              label="Event Visibility Tier"
+              options={[
+                { value: 'campus_only', label: 'Campus-Only (Restricted)' },
+                { value: 'open', label: 'Open Inter-College (Public)' }
+              ]}
+              value={visibility}
+              onChange={e => setVisibility(e.target.value as any)}
+              className="bg-slate-50 border-slate-200"
+              helperText="Set who can view and attend this event."
             />
             <Input
               label="Organizing Club / Society"
@@ -168,6 +181,7 @@ export const CreateEventPage: React.FC = () => {
               onChange={e => setClubOrg(e.target.value)}
               required
               className="bg-slate-50 border-slate-200"
+              helperText="Name of organization hosting."
             />
           </div>
 

@@ -62,7 +62,7 @@ interface AppContextProps {
   markAttendance: (registrationId: string, attended: boolean) => void;
   clearNotification: (id: string) => void;
   markNotificationRead: (id: string) => void;
-  addNotification: (title: string, message: string, type: 'info' | 'success' | 'warning' | 'certificate') => void;
+  addNotification: (title: string, message: string, type: 'info' | 'success' | 'warning' | 'certificate', userId?: string, collegeId?: string) => void;
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);
@@ -103,6 +103,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [myCollegeEvents, setMyCollegeEvents] = useState<Event[]>([]);
+  const [openEvents, setOpenEvents] = useState<Event[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -161,89 +163,165 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => unsubColleges();
   }, []);
 
-  // --- Real-Time Firestore Collection Subscriptions with Tenant Isolation ---
+  // --- Merge Events from My College and Open Events ---
   useEffect(() => {
     if (!currentUser) {
-      setUsers([]);
-      setEvents([]);
+      setEvents(openEvents);
+    } else {
+      const mergedMap = new Map<string, Event>();
+      openEvents.forEach(e => mergedMap.set(e.id, e));
+      myCollegeEvents.forEach(e => mergedMap.set(e.id, e)); // myCollegeEvents overrides because it has status (pending, etc)
+      setEvents(Array.from(mergedMap.values()));
+    }
+  }, [myCollegeEvents, openEvents, currentUser]);
+
+  // --- Real-Time Firestore Collection Subscriptions with Tenant Isolation ---
+  useEffect(() => {
+    let unsubUsers = () => {};
+    let unsubEvents = () => {};
+    let unsubEventsOpen = () => {};
+    let unsubRegs = () => {};
+    let unsubCerts = () => {};
+    let unsubNotifs = () => {};
+
+    if (!currentUser) {
+      // Subscriptions for guest/logged-out state
+      // Subscribe to all users so Quick Login (loginAs) works
+      const qUsers = query(collection(db, 'users'));
+      unsubUsers = onSnapshot(qUsers, (snapshot) => {
+        const loaded: User[] = [];
+        snapshot.forEach((d) => {
+          loaded.push(d.data() as User);
+        });
+        setUsers(loaded);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'users');
+      });
+
+      // Secure subscription to ONLY approved and open events for guests
+      const qEventsOpen = query(
+        collection(db, 'events'),
+        where('visibility', '==', 'open'),
+        where('status', '==', 'approved')
+      );
+      unsubEventsOpen = onSnapshot(qEventsOpen, (snapshot) => {
+        const loaded: Event[] = [];
+        snapshot.forEach((d) => {
+          loaded.push(d.data() as Event);
+        });
+        setOpenEvents(loaded);
+        setMyCollegeEvents([]);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'events-open-guest');
+      });
+
       setRegistrations([]);
       setCertificates([]);
       setNotifications([]);
-      return;
+    } else {
+      // Determined tenant-isolated collegeId
+      const activeCollegeId = currentUser.collegeId || colleges.find(c => c.name === currentUser.collegeName)?.id || '';
+
+      if (!activeCollegeId) {
+        console.warn("Tenant isolation warning: No college ID resolved for user", currentUser.name);
+        return;
+      }
+
+      // 1. Users Sync - Enforces query filtering by collegeId
+      const qUsers = query(collection(db, 'users'), where('collegeId', '==', activeCollegeId));
+      unsubUsers = onSnapshot(qUsers, (snapshot) => {
+        const loaded: User[] = [];
+        snapshot.forEach((d) => {
+          loaded.push(d.data() as User);
+        });
+        setUsers(loaded);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `users?collegeId=${activeCollegeId}`);
+      });
+
+      // 2. Events Sync (My College) - Enforces query filtering by collegeId
+      const qEventsMyCollege = query(collection(db, 'events'), where('collegeId', '==', activeCollegeId));
+      unsubEvents = onSnapshot(qEventsMyCollege, (snapshot) => {
+        const loaded: Event[] = [];
+        snapshot.forEach((d) => {
+          loaded.push(d.data() as Event);
+        });
+        setMyCollegeEvents(loaded);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `events?collegeId=${activeCollegeId}`);
+      });
+
+      // 2b. Open Events Sync (Cross-College fests) - Approved open events from all colleges
+      const qEventsOpen = query(
+        collection(db, 'events'),
+        where('visibility', '==', 'open'),
+        where('status', '==', 'approved')
+      );
+      unsubEventsOpen = onSnapshot(qEventsOpen, (snapshot) => {
+        const loaded: Event[] = [];
+        snapshot.forEach((d) => {
+          loaded.push(d.data() as Event);
+        });
+        setOpenEvents(loaded);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'events-open-logged-in');
+      });
+
+      // 3. Registrations Sync - Student queries their own; coordinator/admin query by collegeId
+      let qRegs;
+      if (currentUser.role === 'student') {
+        qRegs = query(collection(db, 'registrations'), where('studentId', '==', currentUser.id));
+      } else {
+        qRegs = query(collection(db, 'registrations'), where('collegeId', '==', activeCollegeId));
+      }
+      unsubRegs = onSnapshot(qRegs, (snapshot) => {
+        const loaded: Registration[] = [];
+        snapshot.forEach((d) => {
+          loaded.push(d.data() as Registration);
+        });
+        setRegistrations(loaded);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'registrations');
+      });
+
+      // 4. Certificates Sync - Student queries their own; coordinator/admin query by collegeId
+      let qCerts;
+      if (currentUser.role === 'student') {
+        qCerts = query(collection(db, 'certificates'), where('studentId', '==', currentUser.id));
+      } else {
+        qCerts = query(collection(db, 'certificates'), where('collegeId', '==', activeCollegeId));
+      }
+      unsubCerts = onSnapshot(qCerts, (snapshot) => {
+        const loaded: Certificate[] = [];
+        snapshot.forEach((d) => {
+          loaded.push(d.data() as Certificate);
+        });
+        setCertificates(loaded);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'certificates');
+      });
+
+      // 5. Notifications Sync - Enforces query filtering by collegeId
+      const qNotifs = query(collection(db, 'notifications'), where('collegeId', '==', activeCollegeId));
+      unsubNotifs = onSnapshot(qNotifs, (snapshot) => {
+        const loaded: Notification[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data() as Notification;
+          if (!data.userId || data.userId === currentUser.id) {
+            loaded.push(data);
+          }
+        });
+        loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setNotifications(loaded);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `notifications?collegeId=${activeCollegeId}`);
+      });
     }
-
-    // Determine the collegeId to query with
-    const activeCollegeId = currentUser.collegeId || colleges.find(c => c.name === currentUser.collegeName)?.id || '';
-
-    if (!activeCollegeId) {
-      console.warn("Tenant isolation warning: No college ID resolved for user", currentUser.name);
-      return;
-    }
-
-    // 1. Users Sync - Enforces query filtering by collegeId
-    const qUsers = query(collection(db, 'users'), where('collegeId', '==', activeCollegeId));
-    const unsubUsers = onSnapshot(qUsers, (snapshot) => {
-      const loaded: User[] = [];
-      snapshot.forEach((d) => {
-        loaded.push(d.data() as User);
-      });
-      setUsers(loaded);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `users?collegeId=${activeCollegeId}`);
-    });
-
-    // 2. Events Sync - Enforces query filtering by collegeId
-    const qEvents = query(collection(db, 'events'), where('collegeId', '==', activeCollegeId));
-    const unsubEvents = onSnapshot(qEvents, (snapshot) => {
-      const loaded: Event[] = [];
-      snapshot.forEach((d) => {
-        loaded.push(d.data() as Event);
-      });
-      setEvents(loaded);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `events?collegeId=${activeCollegeId}`);
-    });
-
-    // 3. Registrations Sync - Enforces query filtering by collegeId
-    const qRegs = query(collection(db, 'registrations'), where('collegeId', '==', activeCollegeId));
-    const unsubRegs = onSnapshot(qRegs, (snapshot) => {
-      const loaded: Registration[] = [];
-      snapshot.forEach((d) => {
-        loaded.push(d.data() as Registration);
-      });
-      setRegistrations(loaded);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `registrations?collegeId=${activeCollegeId}`);
-    });
-
-    // 4. Certificates Sync - Enforces query filtering by collegeId
-    const qCerts = query(collection(db, 'certificates'), where('collegeId', '==', activeCollegeId));
-    const unsubCerts = onSnapshot(qCerts, (snapshot) => {
-      const loaded: Certificate[] = [];
-      snapshot.forEach((d) => {
-        loaded.push(d.data() as Certificate);
-      });
-      setCertificates(loaded);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `certificates?collegeId=${activeCollegeId}`);
-    });
-
-    // 5. Notifications Sync - Enforces query filtering by collegeId
-    const qNotifs = query(collection(db, 'notifications'), where('collegeId', '==', activeCollegeId));
-    const unsubNotifs = onSnapshot(qNotifs, (snapshot) => {
-      const loaded: Notification[] = [];
-      snapshot.forEach((d) => {
-        loaded.push(d.data() as Notification);
-      });
-      loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setNotifications(loaded);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `notifications?collegeId=${activeCollegeId}`);
-    });
 
     return () => {
       unsubUsers();
       unsubEvents();
+      unsubEventsOpen();
       unsubRegs();
       unsubCerts();
       unsubNotifs();
@@ -254,7 +332,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addNotification = async (
     title: string,
     message: string,
-    type: 'info' | 'success' | 'warning' | 'certificate'
+    type: 'info' | 'success' | 'warning' | 'certificate',
+    userId?: string,
+    collegeId?: string
   ) => {
     const newNot: Notification = {
       id: `not_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -263,7 +343,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       type,
       read: false,
       createdAt: new Date().toISOString(),
-      collegeId: currentUser?.collegeId || ''
+      collegeId: collegeId || currentUser?.collegeId || '',
+      userId: userId || ''
     };
     try {
       await setDoc(doc(db, 'notifications', newNot.id), newNot);
@@ -345,9 +426,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: false, error: "Password is required for secure authentication." };
       }
       
+      const cleanEmail = (email || '').trim();
+      const cleanPassword = (password || '').trim();
+      
       let foundUser: User | undefined = undefined;
       try {
-        const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase()));
+        const q = query(collection(db, 'users'), where('email', '==', cleanEmail.toLowerCase()));
         const snap = await getDocs(q);
         if (!snap.empty) {
           const matchedDocs: User[] = [];
@@ -362,12 +446,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       let userCredential;
       try {
-        userCredential = await signInWithEmailAndPassword(auth, email, password);
+        userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
       } catch (authErr: any) {
-        if ((authErr.code === 'auth/invalid-credential' || authErr.code === 'auth/user-not-found') && foundUser && foundUser.password === password) {
+        if ((authErr.code === 'auth/invalid-credential' || authErr.code === 'auth/user-not-found') && foundUser && (foundUser.password || '').trim() === cleanPassword) {
           console.log("loginWithEmail auth mismatch, attempting self-healing repair...");
           try {
-            userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
             const newUid = userCredential.user.uid;
             
             if (newUid !== foundUser.id) {
@@ -450,7 +534,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: false, error: "Password is required for registration." };
       }
 
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const cleanEmail = (email || '').trim().toLowerCase();
+      const cleanPassword = (password || '').trim();
+
+      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
       const uid = userCredential.user.uid;
 
       const collegeObj = colleges.find(c => c.name === collegeName);
@@ -460,14 +547,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const newUser: User = {
         id: uid,
         uid: uid,
-        name,
-        email,
+        name: (name || '').trim(),
+        email: cleanEmail,
         role,
         department: role !== 'admin' ? department : undefined,
         departmentId,
         collegeName,
         collegeId,
-        password,
+        password: cleanPassword,
         createdAt: new Date().toISOString(),
         studentId: role === 'student' ? `STU-2026-${Math.floor(1000 + Math.random() * 9000)}` : undefined,
         avatarUrl: `https://images.unsplash.com/photo-${role === 'student' ? '1534528741775-53994a69daeb' : '1573496359142-b8d87734a5a2'}?auto=format&fit=crop&q=80&w=200`,
@@ -615,7 +702,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addNotification(
       'Registration Confirmed!',
       `You have registered for "${eventObj.title}". Your digital QR pass is ready.`,
-      'success'
+      'success',
+      currentUser.id,
+      currentUser.collegeId
     );
     return true;
   };
@@ -641,7 +730,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addNotification(
       'Registration Cancelled',
       `Your reservation for "${reg.eventTitle}" was cancelled.`,
-      'info'
+      'info',
+      reg.studentId,
+      reg.collegeId
     );
   };
 
@@ -683,6 +774,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       tags: eventData.tags || [],
       status: 'pending', // Pending Admin approval
       attendanceTracked: false,
+      visibility: eventData.visibility || 'campus_only',
 
       // Phase 1 Additional Fields
       departmentId: eventData.departmentId || departmentVal,
@@ -711,11 +803,36 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updatedAt: new Date().toISOString()
     };
     await updateDoc(doc(db, 'events', eventId), changeData);
-    addNotification('Event Updated', 'Event details have been successfully revised.', 'success');
+    
+    const ev = events.find(e => e.id === eventId);
+    if (ev) {
+      // Find all students registered for this event
+      const registeredStudents = registrations.filter(r => r.eventId === eventId && r.status === 'registered');
+      for (const reg of registeredStudents) {
+        await addNotification(
+          'Event Updated',
+          `The details for "${ev.title}" have been revised. Please check the event page.`,
+          'info',
+          reg.studentId,
+          ev.collegeId
+        );
+      }
+      
+      if (currentUser) {
+        await addNotification(
+          'Event Updated',
+          `Event "${ev.title}" details have been successfully revised.`,
+          'success',
+          currentUser.id,
+          ev.collegeId
+        );
+      }
+    }
   };
 
   const deleteEvent = async (eventId: string) => {
     const ev = events.find(e => e.id === eventId);
+    if (!ev) return;
     await deleteDoc(doc(db, 'events', eventId));
     
     // Also mark associated registrations as cancelled
@@ -727,12 +844,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           batch.update(doc(db, 'registrations', reg.id), { status: 'cancelled' });
         });
         await batch.commit();
+        
+        // Notify each registered student
+        for (const reg of associatedRegs) {
+          if (reg.status === 'registered') {
+            await addNotification(
+              'Event Cancelled',
+              `Unfortunately, "${ev.title}" has been cancelled. Your registration is refunded/invalidated.`,
+              'warning',
+              reg.studentId,
+              ev.collegeId
+            );
+          }
+        }
       } catch (e) {
         console.error("Error cancelling associated registrations:", e);
       }
     }
 
-    addNotification('Event Removed', `"${ev?.title}" has been deleted from the catalog.`, 'warning');
+    if (currentUser) {
+      addNotification(
+        'Event Removed',
+        `"${ev.title}" has been deleted from the catalog.`,
+        'warning',
+        currentUser.id,
+        ev.collegeId
+      );
+    }
   };
 
   // --- Admin Actions ---
@@ -743,7 +881,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addNotification(
         'Event Approved',
         `"${ev.title}" is now published and open for registrations.`,
-        'success'
+        'success',
+        ev.createdBy || ev.coordinatorId,
+        ev.collegeId
       );
     }
   };
@@ -755,7 +895,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addNotification(
         'Event Rejected',
         `"${ev.title}" was declined by the administrator.`,
-        'warning'
+        'warning',
+        ev.createdBy || ev.coordinatorId,
+        ev.collegeId
       );
     }
   };
@@ -803,7 +945,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addNotification(
           'Certificate Issued!',
           `Digital certificate minted for ${reg.studentName} for attending "${reg.eventTitle}".`,
-          'certificate'
+          'certificate',
+          reg.studentId,
+          reg.collegeId
         );
       }
     } else {

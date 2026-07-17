@@ -62,6 +62,7 @@ export interface Event {
   tags: string[];
   status: 'pending' | 'approved' | 'rejected';
   attendanceTracked: boolean;
+  visibility?: 'campus_only' | 'open';
   photos?: string[]; // Post-event photo gallery
   
   // Phase 1 Additional Fields
@@ -114,6 +115,7 @@ export interface Notification {
   read: boolean;
   createdAt: string;
   collegeId?: string;
+  userId?: string;
 }
 
 export interface AppState {

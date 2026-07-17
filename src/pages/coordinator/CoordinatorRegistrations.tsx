@@ -6,7 +6,7 @@ import { Select } from '../../components/common/Input';
 import { CheckCircle2, XCircle, Search, Users, ShieldCheck, Mail, Calendar, Award } from 'lucide-react';
 
 export const CoordinatorRegistrations: React.FC = () => {
-  const { currentUser, events, registrations, markAttendance } = useApp();
+  const { currentUser, events, registrations, markAttendance, certificates } = useApp();
   
   // Coordinator's events
   const coordEvents = events.filter(e => e.coordinatorId === currentUser?.id);
@@ -102,53 +102,69 @@ export const CoordinatorRegistrations: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50 text-slate-600 font-medium">
-                      {activeEventRegs.map((reg) => (
-                        <tr key={reg.id} className="hover:bg-slate-50/20 transition-colors">
-                          <td className="py-4 px-6">
-                            <div className="flex flex-col">
-                              <span className="font-bold text-slate-800">{reg.studentName}</span>
-                              <span className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
-                                <Mail className="h-3 w-3 shrink-0" /> {reg.studentEmail}
+                      {activeEventRegs.map((reg) => {
+                        const cert = certificates.find(c => c.registrationId === reg.id);
+                        return (
+                          <tr key={reg.id} className="hover:bg-slate-50/20 transition-colors">
+                            <td className="py-4 px-6">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-slate-800">{reg.studentName}</span>
+                                <span className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                  <Mail className="h-3 w-3 shrink-0" /> {reg.studentEmail}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-4 px-6 text-slate-400">
+                              {new Date(reg.registeredAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="font-mono text-[10px] bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg text-slate-500">
+                                {reg.id}
                               </span>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6 text-slate-400">
-                            {new Date(reg.registeredAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </td>
-                          <td className="py-4 px-6 text-center">
-                            <span className="font-mono text-[10px] bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg text-slate-500">
-                              {reg.id}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 text-center">
-                            <div className="flex items-center justify-center gap-4">
-                              {reg.status === 'attended' ? (
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 flex items-center gap-1">
-                                    <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Checked In
-                                  </span>
-                                  <button
-                                    onClick={() => markAttendance(reg.id, false)}
-                                    title="Revoke check-in"
-                                    className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer"
-                                  >
-                                    <XCircle className="h-4 w-4" />
-                                  </button>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <div className="flex flex-col items-center justify-center gap-1">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  {reg.status === 'attended' ? (
+                                    <>
+                                      <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 flex items-center gap-1">
+                                        <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Checked In
+                                      </span>
+                                      <button
+                                        onClick={() => markAttendance(reg.id, false)}
+                                        title="Revoke check-in"
+                                        className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                      >
+                                        <XCircle className="h-4 w-4" />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <Button
+                                      variant="primary"
+                                      size="sm"
+                                      className="bg-indigo-600 hover:bg-indigo-700 text-[11px] font-bold py-1 px-3"
+                                      onClick={() => markAttendance(reg.id, true)}
+                                    >
+                                      Mark Attended
+                                    </Button>
+                                  )}
                                 </div>
-                              ) : (
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  className="bg-indigo-600 hover:bg-indigo-700 text-[11px] font-bold py-1 px-3"
-                                  onClick={() => markAttendance(reg.id, true)}
-                                >
-                                  Mark Attended
-                                </Button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                                {reg.status === 'attended' && (
+                                  cert ? (
+                                    <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md flex items-center gap-1 mt-1 shrink-0">
+                                      <Award className="h-3 w-3 text-indigo-500" /> Certificate Minted: {cert.verificationCode}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md flex items-center gap-1 mt-1 shrink-0">
+                                      <Award className="h-3 w-3 text-slate-400 animate-pulse" /> Minting Pending
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
