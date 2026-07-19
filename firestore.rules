@@ -1,36 +1,172 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users collection
+    
+    // --- Helper Functions ---
+    
+    function isLoggedIn() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    // --- Collection Security Rules ---
+
+    // Users Collection
     match /users/{userId} {
-      allow read, write: if true;
+      allow create: if isLoggedIn() && request.auth.uid == userId;
+      
+      allow read: if isLoggedIn() && (
+        request.auth.uid == userId || 
+        (getUserData().role == 'admin' && getUserData().collegeId == resource.data.collegeId)
+      );
+      
+      allow update: if isLoggedIn() && (
+        // Self-update: cannot escalate privileges, change role, change collegeId, or modify user id
+        (request.auth.uid == userId && 
+         request.resource.data.role == resource.data.role && 
+         request.resource.data.collegeId == resource.data.collegeId && 
+         request.resource.data.id == resource.data.id) ||
+         
+        // Admin update: can manage users inside their own college, but cannot modify their own tenant properties maliciously
+        (getUserData().role == 'admin' && 
+         getUserData().collegeId == resource.data.collegeId && 
+         request.resource.data.collegeId == resource.data.collegeId)
+      );
+      
+      allow delete: if false; // Users cannot be deleted directly from client SDKs
     }
     
-    // Colleges/Institutions
+    // Colleges/Institutions Collection
     match /colleges/{collegeId} {
-      allow read, write: if true;
+      allow read: if true; // Public directory read access allowed
+      allow write: if isLoggedIn() && getUserData().role == 'admin'; // Only admins can register/update colleges
     }
     
-    // Events
+    // Events Collection
     match /events/{eventId} {
       allow read: if (resource.data.visibility == 'open' && resource.data.status == 'approved') || 
-                  (request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.collegeId == resource.data.collegeId);
-      allow write: if request.auth != null;
+                  (isLoggedIn() && (
+                    getUserData().collegeId == resource.data.collegeId || 
+                    (resource.data.visibility == 'open' && resource.data.status == 'approved')
+                  ));
+                  
+      allow create: if isLoggedIn() && (
+        getUserData().role == 'coordinator' && 
+        request.resource.data.collegeId == getUserData().collegeId && 
+        request.resource.data.coordinatorId == request.auth.uid
+      );
+      
+      allow update: if isLoggedIn() && (
+        // Coordinators can revise details of only their own events
+        (getUserData().role == 'coordinator' && 
+         resource.data.coordinatorId == request.auth.uid && 
+         request.resource.data.coordinatorId == request.auth.uid && 
+         request.resource.data.collegeId == getUserData().collegeId) ||
+         
+        // Admins can approve/modify events belonging to their own college
+        (getUserData().role == 'admin' && 
+         resource.data.collegeId == getUserData().collegeId && 
+         request.resource.data.collegeId == getUserData().collegeId)
+      );
+      
+      allow delete: if isLoggedIn() && (
+        // Coordinators can remove only their own events
+        (getUserData().role == 'coordinator' && resource.data.coordinatorId == request.auth.uid) ||
+        
+        // Admins can delete events inside their own college
+        (getUserData().role == 'admin' && resource.data.collegeId == getUserData().collegeId)
+      );
     }
     
-    // Registrations
+    // Registrations Collection
     match /registrations/{registrationId} {
-      allow read, write: if true;
+      allow read: if isLoggedIn() && (
+        // Students can only read their own registration entries
+        (getUserData().role == 'student' && resource.data.studentId == request.auth.uid) ||
+        
+        // Coordinators can only read registrations for events they organize
+        (getUserData().role == 'coordinator' && 
+         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.coordinatorId == request.auth.uid) ||
+         
+        // Admins can read registrations within their own college
+        (getUserData().role == 'admin' && resource.data.collegeId == getUserData().collegeId)
+      );
+      
+      allow create: if isLoggedIn() && (
+        getUserData().role == 'student' && 
+        request.resource.data.studentId == request.auth.uid && 
+        request.resource.data.status == 'registered'
+      );
+      
+      allow update: if isLoggedIn() && (
+        // Students can only self-cancel their active registrations
+        (getUserData().role == 'student' && 
+         resource.data.studentId == request.auth.uid && 
+         request.resource.data.studentId == resource.data.studentId && 
+         request.resource.data.status == 'cancelled' && 
+         resource.data.status == 'registered') ||
+        
+        // Coordinators can update attendance or certificates only for events they manage
+        (getUserData().role == 'coordinator' && 
+         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.coordinatorId == request.auth.uid) ||
+         
+        // Admins can update/cancel registrations inside their own college
+        (getUserData().role == 'admin' && 
+         resource.data.collegeId == getUserData().collegeId && 
+         request.resource.data.collegeId == getUserData().collegeId)
+      );
+      
+      allow delete: if false; // Entries are never hard-deleted
     }
     
-    // Certificates
+    // Certificates Collection
     match /certificates/{certId} {
-      allow read, write: if true;
+      allow read: if isLoggedIn() && (
+        // Students can only access certificates issued to them
+        (getUserData().role == 'student' && resource.data.studentId == request.auth.uid) ||
+        
+        // Coordinators can only access certificates issued for events they organized
+        (getUserData().role == 'coordinator' && 
+         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.coordinatorId == request.auth.uid) ||
+         
+        // Admins can access certificates in their own college
+        (getUserData().role == 'admin' && resource.data.collegeId == getUserData().collegeId)
+      );
+      
+      allow create: if isLoggedIn() && (
+        // Only coordinators of the event can create/issue certificates
+        getUserData().role == 'coordinator' && 
+        get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.coordinatorId == request.auth.uid
+      );
+      
+      allow update: if false; // Certificates are read-only and immutable once issued
+      
+      allow delete: if isLoggedIn() && (
+        // Only coordinators of the event can delete/revoke certificates
+        getUserData().role == 'coordinator' && 
+        get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.coordinatorId == request.auth.uid
+      );
     }
     
-    // Notifications
+    // Notifications Collection
     match /notifications/{notifId} {
-      allow read, write: if true;
+      allow read: if isLoggedIn() && (
+        resource.data.userId == '' || 
+        resource.data.userId == request.auth.uid
+      );
+      
+      allow create: if isLoggedIn() && 
+                    request.resource.data.collegeId == getUserData().collegeId;
+                    
+      allow update: if isLoggedIn() && 
+                    resource.data.userId == request.auth.uid && 
+                    request.resource.data.userId == resource.data.userId;
+                    
+      allow delete: if isLoggedIn() && 
+                    resource.data.userId == request.auth.uid;
     }
   }
 }

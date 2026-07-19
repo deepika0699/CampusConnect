@@ -20,6 +20,7 @@ import { StudentRegistrations } from './pages/student/StudentRegistrations';
 import { StudentCertificates } from './pages/student/StudentCertificates';
 import { StudentCalendar } from './pages/student/StudentCalendar';
 import { StudentProfile } from './pages/student/StudentProfile';
+import { StudentEventPass } from './pages/student/StudentEventPass';
 
 // Coordinator Page Imports
 import { CoordinatorDashboard } from './pages/coordinator/CoordinatorDashboard';
@@ -74,6 +75,8 @@ const AppContent: React.FC = () => {
           return <StudentRegistrations />;
         case '/student/certificates':
           return <StudentCertificates />;
+        case '/student/event-pass':
+          return <StudentEventPass />;
         case '/student/calendar':
           return <StudentCalendar />;
         case '/student/profile':

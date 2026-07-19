@@ -19,7 +19,8 @@ import {
   deleteDoc,
   writeBatch,
   query,
-  where
+  where,
+  runTransaction
 } from 'firebase/firestore';
 
 interface AppContextProps {
@@ -52,8 +53,8 @@ interface AppContextProps {
   updateUserCollege: (collegeName: string) => void;
   updateUserProfile: (name: string, bio: string, department: string) => void;
   logout: () => void;
-  registerForEvent: (eventId: string) => boolean;
-  cancelRegistration: (registrationId: string) => void;
+  registerForEvent: (eventId: string) => Promise<boolean>;
+  cancelRegistration: (registrationId: string) => Promise<void>;
   createEvent: (eventData: Partial<Event>) => Event;
   updateEvent: (eventId: string, updatedData: Partial<Event>) => void;
   deleteEvent: (eventId: string) => void;
@@ -183,20 +184,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     let unsubRegs = () => {};
     let unsubCerts = () => {};
     let unsubNotifs = () => {};
+    let unsubCoordinatorEvents = () => {};
+    let unsubCoordinatorRegs = () => {};
+    let unsubCoordinatorCerts = () => {};
 
     if (!currentUser) {
       // Subscriptions for guest/logged-out state
-      // Subscribe to all users so Quick Login (loginAs) works
-      const qUsers = query(collection(db, 'users'));
-      unsubUsers = onSnapshot(qUsers, (snapshot) => {
-        const loaded: User[] = [];
-        snapshot.forEach((d) => {
-          loaded.push(d.data() as User);
-        });
-        setUsers(loaded);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.GET, 'users');
-      });
+      // Security: Guest cannot read users. Set empty list to prevent PERMISSION_DENIED.
+      setUsers([]);
 
       // Secure subscription to ONLY approved and open events for guests
       const qEventsOpen = query(
@@ -227,17 +222,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
       }
 
-      // 1. Users Sync - Enforces query filtering by collegeId
-      const qUsers = query(collection(db, 'users'), where('collegeId', '==', activeCollegeId));
-      unsubUsers = onSnapshot(qUsers, (snapshot) => {
-        const loaded: User[] = [];
-        snapshot.forEach((d) => {
-          loaded.push(d.data() as User);
+      // 1. Users Sync - Enforces query filtering based on roles to align with security rules
+      if (currentUser.role === 'admin') {
+        const qUsers = query(collection(db, 'users'), where('collegeId', '==', activeCollegeId));
+        unsubUsers = onSnapshot(qUsers, (snapshot) => {
+          const loaded: User[] = [];
+          snapshot.forEach((d) => {
+            loaded.push(d.data() as User);
+          });
+          setUsers(loaded);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, `users?collegeId=${activeCollegeId}`);
         });
-        setUsers(loaded);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.GET, `users?collegeId=${activeCollegeId}`);
-      });
+      } else {
+        // Students and coordinators subscribe only to their own /users/{uid} document.
+        const userDocRef = doc(db, 'users', currentUser.id);
+        unsubUsers = onSnapshot(userDocRef, (docSnapshot) => {
+          if (docSnapshot.exists()) {
+            const userData = docSnapshot.data() as User;
+            setUsers([userData]);
+            
+            // Safe profile update: keeps context updated when background modifications occur
+            setCurrentUser(userData);
+          } else {
+            setUsers([]);
+          }
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, `users/${currentUser.id}`);
+        });
+      }
 
       // 2. Events Sync (My College) - Enforces query filtering by collegeId
       const qEventsMyCollege = query(collection(db, 'events'), where('collegeId', '==', activeCollegeId));
@@ -267,55 +280,194 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         handleFirestoreError(error, OperationType.GET, 'events-open-logged-in');
       });
 
-      // 3. Registrations Sync - Student queries their own; coordinator/admin query by collegeId
-      let qRegs;
+      // 3. Registrations Sync - Student queries their own; admin queries by collegeId; coordinator queries by owned events
       if (currentUser.role === 'student') {
-        qRegs = query(collection(db, 'registrations'), where('studentId', '==', currentUser.id));
-      } else {
-        qRegs = query(collection(db, 'registrations'), where('collegeId', '==', activeCollegeId));
-      }
-      unsubRegs = onSnapshot(qRegs, (snapshot) => {
-        const loaded: Registration[] = [];
-        snapshot.forEach((d) => {
-          loaded.push(d.data() as Registration);
+        const qRegs = query(collection(db, 'registrations'), where('studentId', '==', currentUser.id));
+        unsubRegs = onSnapshot(qRegs, (snapshot) => {
+          const loaded: Registration[] = [];
+          snapshot.forEach((d) => {
+            loaded.push(d.data() as Registration);
+          });
+          setRegistrations(loaded);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, 'registrations');
         });
-        setRegistrations(loaded);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.GET, 'registrations');
-      });
+      } else if (currentUser.role === 'admin') {
+        const qRegs = query(collection(db, 'registrations'), where('collegeId', '==', activeCollegeId));
+        unsubRegs = onSnapshot(qRegs, (snapshot) => {
+          const loaded: Registration[] = [];
+          snapshot.forEach((d) => {
+            loaded.push(d.data() as Registration);
+          });
+          setRegistrations(loaded);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, 'registrations');
+        });
+      }
 
-      // 4. Certificates Sync - Student queries their own; coordinator/admin query by collegeId
-      let qCerts;
+      // 4. Certificates Sync - Student queries their own; admin queries by collegeId; coordinator queries by owned events
       if (currentUser.role === 'student') {
-        qCerts = query(collection(db, 'certificates'), where('studentId', '==', currentUser.id));
-      } else {
-        qCerts = query(collection(db, 'certificates'), where('collegeId', '==', activeCollegeId));
-      }
-      unsubCerts = onSnapshot(qCerts, (snapshot) => {
-        const loaded: Certificate[] = [];
-        snapshot.forEach((d) => {
-          loaded.push(d.data() as Certificate);
+        const qCerts = query(collection(db, 'certificates'), where('studentId', '==', currentUser.id));
+        unsubCerts = onSnapshot(qCerts, (snapshot) => {
+          const loaded: Certificate[] = [];
+          snapshot.forEach((d) => {
+            loaded.push(d.data() as Certificate);
+          });
+          setCertificates(loaded);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, 'certificates');
         });
-        setCertificates(loaded);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.GET, 'certificates');
-      });
+      } else if (currentUser.role === 'admin') {
+        const qCerts = query(collection(db, 'certificates'), where('collegeId', '==', activeCollegeId));
+        unsubCerts = onSnapshot(qCerts, (snapshot) => {
+          const loaded: Certificate[] = [];
+          snapshot.forEach((d) => {
+            loaded.push(d.data() as Certificate);
+          });
+          setCertificates(loaded);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, 'certificates');
+        });
+      }
 
-      // 5. Notifications Sync - Enforces query filtering by collegeId
-      const qNotifs = query(collection(db, 'notifications'), where('collegeId', '==', activeCollegeId));
-      unsubNotifs = onSnapshot(qNotifs, (snapshot) => {
-        const loaded: Notification[] = [];
-        snapshot.forEach((d) => {
-          const data = d.data() as Notification;
-          if (!data.userId || data.userId === currentUser.id) {
-            loaded.push(data);
+      // Coordinator specific combined subscriptions
+      if (currentUser.role === 'coordinator') {
+        const qCoordEvents = query(collection(db, 'events'), where('coordinatorId', '==', currentUser.id));
+        unsubCoordinatorEvents = onSnapshot(qCoordEvents, (eventsSnapshot) => {
+          const eventIds = eventsSnapshot.docs.map(doc => doc.id);
+          
+          // Clean up previous registration and certificate subscriptions
+          unsubCoordinatorRegs();
+          unsubCoordinatorCerts();
+          
+          if (eventIds.length === 0) {
+            setRegistrations([]);
+            setCertificates([]);
+            return;
+          }
+
+          // Firestore 'in' query supports up to 30 values.
+          const chunks: string[][] = [];
+          for (let i = 0; i < eventIds.length; i += 30) {
+            chunks.push(eventIds.slice(i, i + 30));
+          }
+
+          // --- Registrations ---
+          const regResults: { [chunkIndex: number]: Registration[] } = {};
+          const regUnsubs: (() => void)[] = [];
+
+          chunks.forEach((chunk, index) => {
+            const qRegsChunk = query(collection(db, 'registrations'), where('eventId', 'in', chunk));
+            const unsubChunk = onSnapshot(qRegsChunk, (snapshot) => {
+              const loaded: Registration[] = [];
+              snapshot.forEach((d) => {
+                loaded.push(d.data() as Registration);
+              });
+              regResults[index] = loaded;
+              
+              const allRegs: Registration[] = [];
+              chunks.forEach((_, idx) => {
+                if (regResults[idx]) {
+                  allRegs.push(...regResults[idx]);
+                }
+              });
+              setRegistrations(allRegs);
+            }, (error) => {
+              handleFirestoreError(error, OperationType.GET, `coordinator-registrations-chunk-${index}`);
+            });
+            regUnsubs.push(unsubChunk);
+          });
+
+          unsubCoordinatorRegs = () => {
+            regUnsubs.forEach(unsub => unsub());
+          };
+
+          // --- Certificates ---
+          const certResults: { [chunkIndex: number]: Certificate[] } = {};
+          const certUnsubs: (() => void)[] = [];
+
+          chunks.forEach((chunk, index) => {
+            const qCertsChunk = query(collection(db, 'certificates'), where('eventId', 'in', chunk));
+            const unsubChunk = onSnapshot(qCertsChunk, (snapshot) => {
+              const loaded: Certificate[] = [];
+              snapshot.forEach((d) => {
+                loaded.push(d.data() as Certificate);
+              });
+              certResults[index] = loaded;
+
+              const allCerts: Certificate[] = [];
+              chunks.forEach((_, idx) => {
+                if (certResults[idx]) {
+                  allCerts.push(...certResults[idx]);
+                }
+              });
+              setCertificates(allCerts);
+            }, (error) => {
+              handleFirestoreError(error, OperationType.GET, `coordinator-certificates-chunk-${index}`);
+            });
+            certUnsubs.push(unsubChunk);
+          });
+
+          unsubCoordinatorCerts = () => {
+            certUnsubs.forEach(unsub => unsub());
+          };
+
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, 'coordinator-events');
+        });
+      }
+
+      // 5. Notifications Sync - Query alignment to fetch personal and broadcast notifications safely
+      let personalNotifs: Notification[] = [];
+      let broadcastNotifs: Notification[] = [];
+
+      const mergeAndSetNotifs = () => {
+        const combined = [...personalNotifs, ...broadcastNotifs];
+        const seen = new Set<string>();
+        const unique: Notification[] = [];
+        combined.forEach(n => {
+          if (n && n.id && !seen.has(n.id)) {
+            seen.add(n.id);
+            unique.push(n);
           }
         });
-        loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        setNotifications(loaded);
+        unique.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setNotifications(unique);
+      };
+
+      const qPersonal = query(
+        collection(db, 'notifications'),
+        where('userId', '==', currentUser.id)
+      );
+      const unsubPersonal = onSnapshot(qPersonal, (snapshot) => {
+        personalNotifs = [];
+        snapshot.forEach((d) => {
+          personalNotifs.push(d.data() as Notification);
+        });
+        mergeAndSetNotifs();
       }, (error) => {
-        handleFirestoreError(error, OperationType.GET, `notifications?collegeId=${activeCollegeId}`);
+        handleFirestoreError(error, OperationType.GET, `notifications?userId=${currentUser.id}`);
       });
+
+      const qBroadcast = query(
+        collection(db, 'notifications'),
+        where('collegeId', '==', activeCollegeId),
+        where('userId', '==', '')
+      );
+      const unsubBroadcast = onSnapshot(qBroadcast, (snapshot) => {
+        broadcastNotifs = [];
+        snapshot.forEach((d) => {
+          broadcastNotifs.push(d.data() as Notification);
+        });
+        mergeAndSetNotifs();
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `notifications?collegeId=${activeCollegeId}&userId=`);
+      });
+
+      unsubNotifs = () => {
+        unsubPersonal();
+        unsubBroadcast();
+      };
     }
 
     return () => {
@@ -325,8 +477,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubRegs();
       unsubCerts();
       unsubNotifs();
+      unsubCoordinatorEvents();
+      unsubCoordinatorRegs();
+      unsubCoordinatorCerts();
     };
-  }, [currentUser, currentUser?.collegeId, currentUser?.collegeName, colleges]);
+  }, [currentUser?.id, currentUser?.collegeId, currentUser?.collegeName, currentUser?.role, colleges]);
 
   // --- Notification Helper ---
   const addNotification = async (
@@ -655,85 +810,152 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // --- Student Actions ---
-  const registerForEvent = (eventId: string): boolean => {
+  const registerForEvent = async (eventId: string): Promise<boolean> => {
     if (!currentUser) {
       navigateTo('/login');
       return false;
     }
 
-    const eventObj = events.find(e => e.id === eventId);
-    if (!eventObj) return false;
+    try {
+      // Deterministic ID ensures duplicate protection at the Firestore document level
+      const registrationId = `reg_${eventId}_${currentUser.id}`;
+      const regDocRef = doc(db, 'registrations', registrationId);
 
-    // Check if already registered
-    const alreadyRegistered = registrations.some(
-      r => r.eventId === eventId && r.studentId === currentUser.id && r.status !== 'cancelled'
-    );
-    if (alreadyRegistered) return false;
+      const success = await runTransaction(db, async (transaction) => {
+        // Read the event document
+        const eventDocRef = doc(db, 'events', eventId);
+        const eventSnapshot = await transaction.get(eventDocRef);
+        if (!eventSnapshot.exists()) {
+          throw new Error('Event does not exist');
+        }
+        const eventObj = eventSnapshot.data() as Event;
 
-    // Check limits
-    if (eventObj.currentParticipants >= eventObj.maxParticipants) {
-      addNotification('Registration Failed', `"${eventObj.title}" is currently fully booked.`, 'warning');
+        // Verify college ownership/validity
+        if (!eventObj.collegeId) {
+          throw new Error('Event belongs to an invalid college');
+        }
+
+        // Verify the event is approved
+        if (eventObj.status !== 'approved') {
+          throw new Error('This event has not been approved for registrations yet');
+        }
+
+        // Verify registration is still open (seats are available)
+        const currentParticipants = eventObj.currentParticipants || 0;
+        const maxParticipants = eventObj.maxParticipants || 0;
+        if (currentParticipants >= maxParticipants) {
+          throw new Error('This event is currently fully booked');
+        }
+
+        // Verify student is not already registered
+        const regSnapshot = await transaction.get(regDocRef);
+        if (regSnapshot.exists()) {
+          const existingReg = regSnapshot.data() as Registration;
+          if (existingReg.status === 'registered') {
+            throw new Error('You are already registered for this event');
+          }
+        }
+
+        // Build the registration object
+        const newReg: Registration = {
+          id: registrationId,
+          eventId,
+          eventTitle: eventObj.title,
+          eventDate: eventObj.date,
+          eventVenue: eventObj.venue,
+          studentId: currentUser.id,
+          studentName: currentUser.name,
+          studentEmail: currentUser.email,
+          registeredAt: new Date().toISOString(),
+          status: 'registered',
+          qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=CC-REG-${eventId}-${currentUser.id}-registered`,
+          collegeId: currentUser.collegeId
+        };
+
+        // Create/Update the registration document
+        transaction.set(regDocRef, cleanObj(newReg));
+
+        // Increment event participant count atomically
+        transaction.update(eventDocRef, {
+          currentParticipants: currentParticipants + 1
+        });
+
+        return true;
+      });
+
+      // Notify user
+      const eventObj = events.find(e => e.id === eventId);
+      const title = eventObj ? eventObj.title : 'Event';
+      addNotification(
+        'Registration Confirmed!',
+        `You have registered for "${title}". Your digital QR pass is ready.`,
+        'success',
+        currentUser.id,
+        currentUser.collegeId
+      );
+
+      return success;
+    } catch (error: any) {
+      console.error('Registration transaction failed:', error);
+      const message = error.message || 'Transaction error';
+      if (message.includes('already registered') || message.includes('fully booked') || message.includes('not been approved')) {
+        addNotification('Registration Failed', message, 'warning');
+      } else {
+        handleFirestoreError(error, OperationType.CREATE, `registrations/${eventId}`);
+      }
       return false;
     }
-
-    // Register
-    const newReg: Registration = {
-      id: `reg_${Date.now()}`,
-      eventId,
-      eventTitle: eventObj.title,
-      eventDate: eventObj.date,
-      eventVenue: eventObj.venue,
-      studentId: currentUser.id,
-      studentName: currentUser.name,
-      studentEmail: currentUser.email,
-      registeredAt: new Date().toISOString(),
-      status: 'registered',
-      qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=CC-REG-${eventId}-${currentUser.id}-registered`,
-      collegeId: currentUser.collegeId
-    };
-
-    setDoc(doc(db, 'registrations', newReg.id), newReg);
-    
-    // Update participant count
-    updateDoc(doc(db, 'events', eventId), {
-      currentParticipants: eventObj.currentParticipants + 1
-    });
-
-    addNotification(
-      'Registration Confirmed!',
-      `You have registered for "${eventObj.title}". Your digital QR pass is ready.`,
-      'success',
-      currentUser.id,
-      currentUser.collegeId
-    );
-    return true;
   };
 
-  const cancelRegistration = async (registrationId: string) => {
-    const reg = registrations.find(r => r.id === registrationId);
-    if (!reg) return;
+  const cancelRegistration = async (registrationId: string): Promise<void> => {
+    if (!currentUser) return;
 
-    await updateDoc(doc(db, 'registrations', registrationId), {
-      status: 'cancelled'
-    });
+    try {
+      await runTransaction(db, async (transaction) => {
+        const regDocRef = doc(db, 'registrations', registrationId);
+        const regSnapshot = await transaction.get(regDocRef);
+        if (!regSnapshot.exists()) {
+          throw new Error('Registration record not found');
+        }
 
-    // Decrement participants
-    if (reg.eventId) {
-      const eventObj = events.find(e => e.id === reg.eventId);
-      if (eventObj) {
-        await updateDoc(doc(db, 'events', reg.eventId), {
-          currentParticipants: Math.max(0, eventObj.currentParticipants - 1)
-        });
-      }
+        const regData = regSnapshot.data() as Registration;
+
+        // Verify the registration belongs to the authenticated student
+        if (currentUser.role === 'student' && regData.studentId !== currentUser.id) {
+          throw new Error('Unauthorized registration access');
+        }
+
+        // Delete the registration document
+        transaction.delete(regDocRef);
+
+        // Decrement event participant count atomically, preventing negative counts
+        if (regData.eventId) {
+          const eventDocRef = doc(db, 'events', regData.eventId);
+          const eventSnapshot = await transaction.get(eventDocRef);
+          if (eventSnapshot.exists()) {
+            const eventData = eventSnapshot.data() as Event;
+            const currentParticipants = eventData.currentParticipants || 0;
+            const newCount = Math.max(0, currentParticipants - 1);
+            transaction.update(eventDocRef, {
+              currentParticipants: newCount
+            });
+          }
+        }
+      });
+
+      const reg = registrations.find(r => r.id === registrationId);
+      const title = reg ? reg.eventTitle : 'Event';
+      addNotification(
+        'Registration Cancelled',
+        `Your reservation for "${title}" was cancelled.`,
+        'info',
+        currentUser.id,
+        currentUser.collegeId
+      );
+    } catch (error: any) {
+      console.error('Cancellation transaction failed:', error);
+      handleFirestoreError(error, OperationType.DELETE, `registrations/${registrationId}`);
     }
-
-    addNotification(
-      'Registration Cancelled',
-      `Your reservation for "${reg.eventTitle}" was cancelled.`,
-      'info',
-      reg.studentId,
-      reg.collegeId
-    );
   };
 
   // --- Coordinator Actions ---

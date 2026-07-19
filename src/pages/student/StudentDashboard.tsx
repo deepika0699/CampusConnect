@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { StatCard } from '../../components/dashboard/StatCard';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
-import { Calendar, Award, ListOrdered, Sparkles, MapPin, ArrowRight, Download } from 'lucide-react';
+import { Calendar, Award, ListOrdered, Sparkles, MapPin, ArrowRight, Download, Clock, Ticket } from 'lucide-react';
 import { CountdownTimer } from '../../components/common/CountdownTimer';
 import { Event } from '../../types';
 
@@ -144,31 +144,65 @@ export const StudentDashboard: React.FC = () => {
                   return (
                     <Card
                       key={reg.id}
-                      className="p-5 bg-white border border-slate-100 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4"
+                      className="p-5 bg-white border border-slate-100 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4 relative overflow-hidden"
                     >
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-start gap-2">
-                          <span className="px-2 py-0.5 rounded-md text-[9px] font-bold border capitalize bg-emerald-50 border-emerald-100 text-emerald-700">
-                            {reg.status}
+                      <div className="absolute top-0 bottom-0 left-0 w-1.5 bg-indigo-600" />
+                      
+                      <div className="pl-2 space-y-4">
+                        {/* Event Visibility & Status */}
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-bold border capitalize bg-emerald-50 border-emerald-100 text-emerald-700 flex items-center gap-1 shrink-0">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            {reg.status === 'registered' ? 'Confirmed Entry' : reg.status}
                           </span>
-                          <span className="text-[9px] text-slate-400 font-bold uppercase">{ev?.category || 'academic'}</span>
+                          <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-md bg-slate-50 border border-slate-100 text-slate-400 truncate">
+                            {ev?.visibility === 'open' ? 'Inter-College' : 'Campus Exclusive'}
+                          </span>
                         </div>
-                        
+
+                        {/* Title Context */}
                         <div>
                           <h4 className="text-sm font-extrabold text-slate-800 line-clamp-1">{reg.eventTitle}</h4>
                           <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{ev?.collegeName || currentUser.collegeName}</p>
                         </div>
 
-                        <div className="space-y-1.5 text-xs text-slate-500 font-medium">
+                        {/* Event Details: Date, Time, Venue */}
+                        <div className="space-y-1.5 text-xs text-slate-500 font-semibold">
                           <div className="flex items-center gap-2">
                             <Calendar className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
                             <span>{reg.eventDate}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                            <span>{ev?.time || '10:00 AM'}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <MapPin className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
                             <span className="truncate">{reg.eventVenue}</span>
                           </div>
                         </div>
+
+                        {/* QR Code and Seat/Reference context */}
+                        <div className="pt-3.5 border-t border-slate-50 flex items-center gap-4">
+                          <img
+                            src={reg.qrCodeUrl}
+                            alt="Admission QR"
+                            className="h-16 w-16 bg-slate-50 p-1 border border-slate-100 rounded-xl shrink-0 object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="space-y-1 min-w-0">
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">
+                              Registration ID
+                            </p>
+                            <p className="text-[10px] font-mono font-bold text-slate-600 truncate leading-none select-all py-0.5">
+                              {reg.id}
+                            </p>
+                            <span className="inline-block text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md leading-none mt-1">
+                              Seat Confirmed ({ev?.currentParticipants || 1}/{ev?.maxParticipants || 100})
+                            </span>
+                          </div>
+                        </div>
+
                         {ev && (
                           <div className="pt-2 border-t border-slate-50">
                             <CountdownTimer date={ev.date} time={ev.time} />
@@ -179,10 +213,10 @@ export const StudentDashboard: React.FC = () => {
                       <Button
                         variant="primary"
                         size="sm"
-                        className="w-full bg-indigo-600 font-bold text-xs py-2"
-                        onClick={() => navigateTo(`/events/${reg.eventId}`)}
+                        className="w-full bg-indigo-600 font-bold text-xs py-2 mt-1"
+                        onClick={() => navigateTo(`/student/event-pass?id=${reg.id}`)}
                       >
-                        View Admission Pass
+                        Open Event Pass
                       </Button>
                     </Card>
                   );

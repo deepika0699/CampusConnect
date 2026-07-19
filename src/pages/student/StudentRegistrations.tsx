@@ -108,20 +108,32 @@ export const StudentRegistrations: React.FC = () => {
                   </div>
 
                   {/* Actions buttons */}
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex flex-wrap gap-2 pt-2">
                     <Button 
                       variant="outline" 
                       size="sm" 
+                      className="text-xs"
                       onClick={() => navigateTo(`/events/${reg.eventId}`)}
                     >
                       Event Details
                     </Button>
                     
+                    {reg.status !== 'cancelled' && (
+                      <Button 
+                        variant="primary" 
+                        size="sm" 
+                        className="bg-indigo-600 text-xs"
+                        onClick={() => navigateTo(`/student/event-pass?id=${reg.id}`)}
+                      >
+                        Open Pass
+                      </Button>
+                    )}
+                    
                     {reg.status === 'registered' && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                        className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 text-xs"
                         onClick={() => cancelRegistration(reg.id)}
                       >
                         Cancel Ticket
