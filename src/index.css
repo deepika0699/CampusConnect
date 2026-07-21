@@ -4,17 +4,83 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Metallic Chic Design Palette */
+  --color-brand-primary: #3D52A0;
+  --color-brand-secondary: #7091E6;
+  --color-brand-muted-blue: #8697C4;
+  --color-brand-lavender: #ADBBDA;
+  --color-brand-bg: #EDE8F5;
+  --color-brand-accent: #E8D59E;
+
+  /* Custom Shadow Tokens */
+  --shadow-soft: 0 1px 3px 0 rgba(15, 23, 42, 0.03), 0 1px 2px -1px rgba(15, 23, 42, 0.03), 0 4px 12px -2px rgba(15, 23, 42, 0.05);
+  --shadow-soft-lg: 0 10px 25px -5px rgba(15, 23, 42, 0.04), 0 8px 16px -6px rgba(15, 23, 42, 0.04), 0 1px 3px 0 rgba(15, 23, 42, 0.02);
+
+  /* Animation Custom Definitions */
+  --animate-spin-slow: spin-slow 20s linear infinite;
+  --animate-fade-up: fade-up 0.5s ease-out;
+  --animate-float: float 6s ease-in-out infinite;
+
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
 }
 
-@keyframes spin-slow {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Global design classes */
+.surface-card {
+  background-color: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.03), 0 1px 2px -1px rgba(15, 23, 42, 0.03), 0 4px 12px -2px rgba(15, 23, 42, 0.05);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.animate-spin-slow {
-  animation: spin-slow 20s linear infinite;
+.shadow-soft {
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.03), 0 1px 2px -1px rgba(15, 23, 42, 0.03), 0 4px 12px -2px rgba(15, 23, 42, 0.05);
+}
+
+.shadow-soft-lg {
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.04), 0 8px 16px -6px rgba(15, 23, 42, 0.04), 0 1px 3px 0 rgba(15, 23, 42, 0.02);
+}
+
+.animate-fade-up {
+  animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Page background soft radial gradient styles */
+.atmospheric-bg {
+  background: 
+    radial-gradient(circle at 20% 20%, #EEF2FF 0%, transparent 28%),
+    radial-gradient(circle at 80% 30%, #E9EEFF 0%, transparent 32%),
+    linear-gradient(180deg, #F6F4FF 0%, #F3F0FB 100%);
 }

@@ -100,67 +100,141 @@ export const LandingPage: React.FC<LandingPageProps> = ({ registerFocused }) => 
   };
 
   return (
-    <div className="space-y-16 py-8 sm:py-12">
-      {/* 1. Hero Spotlight */}
-      <section className="relative px-6 py-16 sm:py-24 rounded-3xl bg-slate-900 overflow-hidden text-center flex flex-col items-center">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12)_0,transparent_100%)] opacity-85" />
-        <div className="absolute -top-12 -left-12 w-64 h-64 rounded-full bg-indigo-500/5 blur-3xl" />
-        <div className="absolute -bottom-12 -right-12 w-64 h-64 rounded-full bg-violet-500/5 blur-3xl" />
-
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="max-w-3xl space-y-6 relative z-10"
+    <div className="space-y-16 py-8 sm:py-12 relative overflow-visible">
+      {/* Hero Wrapper with overflow-visible to correctly position architectural background around the hero panel */}
+      <div className="relative w-full max-w-[1280px] mx-auto overflow-visible">
+        
+        {/* 1. Hero Spotlight */}
+        <section 
+          className="relative w-full max-w-[1280px] mx-auto py-20 lg:py-[88px] px-6 sm:px-12 lg:px-[72px] rounded-[32px] overflow-hidden text-center flex flex-col items-center justify-center z-10"
+          style={{ background: 'linear-gradient(135deg, #0F1B4D 0%, #1A2B6B 100%)' }}
         >
-          <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-500/10 text-xs font-semibold text-indigo-300 border border-indigo-500/20 tracking-wide uppercase">
-            <Sparkles className="h-3 w-3 text-indigo-400 animate-pulse" /> Multi-Campus Event Cloud
-          </span>
+          {/* Subtle central radial glow behind the headline */}
+          <div 
+            className="absolute inset-0 pointer-events-none z-0" 
+            style={{
+              background: 'radial-gradient(circle at center, rgba(112, 145, 230, 0.09) 0%, transparent 65%)'
+            }}
+          />
 
-          <h1 className="text-4xl sm:text-6xl font-black text-white tracking-tight leading-none">
-            Educate. Engage.<br />
-            <span className="bg-gradient-to-r from-indigo-400 via-violet-300 to-indigo-300 bg-clip-text text-transparent">CampusConnect</span>
-          </h1>
+          {/* INNER CUBE SURFACES */}
+          
+          {/* LEFT UPPER PANEL */}
+          <motion.div 
+            className="absolute pointer-events-none select-none rounded-[12px]"
+            style={{
+              width: '190px',
+              height: '220px',
+              left: '-60px',
+              top: '10%',
+              backgroundColor: '#C7D2FE',
+              opacity: 0.14,
+              transform: 'rotate(-18deg)',
+              zIndex: 1,
+            }}
+            animate={{ y: [0, -1, 0] }}
+            transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+          />
 
-          <p className="text-base sm:text-lg text-slate-300 font-medium max-w-2xl mx-auto leading-relaxed">
-            The private digital event ecosystem for academic institutions. We empower colleges to host confidential department workshops, athletic leagues, and cultural councils completely isolated within their campus boundaries.
+          {/* BOTTOM-LEFT PANEL */}
+          <motion.div 
+            className="absolute pointer-events-none select-none rounded-[12px]"
+            style={{
+              width: '150px',
+              height: '180px',
+              left: '-40px',
+              bottom: '-30px',
+              backgroundColor: '#A5B4FC',
+              opacity: 0.10,
+              transform: 'rotate(22deg)',
+              zIndex: 1,
+            }}
+            animate={{ y: [0, 1, 0] }}
+            transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+          />
+
+          {/* RIGHT PANEL */}
+          <motion.div 
+            className="absolute pointer-events-none select-none rounded-[12px]"
+            style={{
+              width: '210px',
+              height: '250px',
+              right: '-50px',
+              top: '15%',
+              backgroundColor: '#C7D2FE',
+              opacity: 0.12,
+              transform: 'rotate(-24deg)',
+              zIndex: 1,
+            }}
+            animate={{ y: [0, -1, 0] }}
+            transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+          />
+
+          {/* Content layout (centered) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+            className="max-w-3xl space-y-6 relative z-10"
+          >
+            {/* Subtle navy pill top badge */}
+            <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#3D52A0]/30 text-[#7091E6] border border-[#7091E6]/30 text-xs font-bold tracking-wider uppercase">
+              <Sparkles className="h-3.5 w-3.5 text-[#E8D59E] animate-pulse" /> Multi-Campus Event Cloud
+            </span>
+
+            {/* Headline */}
+            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold text-white tracking-tight leading-[1.1]">
+              Educate. Engage.<br />
+              <span className="inline-block text-[0.82em] bg-gradient-to-r from-[#7091E6] via-[#8697C4] to-[#C7D2FE] bg-clip-text text-transparent">
+                CampusConnect
+              </span>
+            </h1>
+
+          {/* Supporting enterprise paragraph */}
+          <p className="text-base sm:text-lg text-[#D6E2FF] font-medium max-w-2xl mx-auto leading-relaxed">
+            The private digital event ecosystem for academic institutions. We empower colleges to host confidential department workshops, athletic leagues, and cultural councils completely isolated within their campus boundaries with secure QR-code attendance check-ins, automated updates, and cryptographically verified academic credentials.
           </p>
 
-          <div className="pt-4 flex flex-wrap justify-center gap-4">
+          {/* CTA Buttons */}
+          <div className="pt-8 flex flex-col sm:flex-row justify-center gap-4 w-full sm:w-auto">
             {currentUser ? (
-              <Button
-                variant="primary"
-                size="lg"
-                className="px-8 bg-indigo-500 hover:bg-indigo-600 text-white font-bold"
-                rightIcon={<ArrowRight className="h-4.5 w-4.5" />}
-                onClick={() => navigateTo('/events')}
-              >
-                Go to Events Dashboard
-              </Button>
-            ) : (
-              <>
+              <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
                 <Button
                   variant="primary"
-                  size="lg"
-                  className="px-8 bg-indigo-500 hover:bg-indigo-600 text-white font-bold"
+                  className="h-[50px] px-8 bg-[#7091E6] hover:bg-[#5C7FE0] text-white font-bold rounded-[16px] shadow-lg shadow-[#7091E6]/25 border-none transition-all duration-200 w-full sm:w-auto text-sm"
                   rightIcon={<ArrowRight className="h-4.5 w-4.5" />}
                   onClick={() => navigateTo('/events')}
                 >
-                  Explore Events
+                  Go to Events Dashboard
                 </Button>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="px-8 border-slate-700 hover:bg-slate-800 text-slate-200 font-bold"
-                  onClick={() => navigateTo('/institution/register')}
-                >
-                  Register Institution
-                </Button>
+              </motion.div>
+            ) : (
+              <>
+                <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
+                  <Button
+                    variant="primary"
+                    className="h-[50px] px-8 bg-[#7091E6] hover:bg-[#5C7FE0] text-white font-bold rounded-[16px] shadow-lg shadow-[#7091E6]/25 border-none transition-all duration-200 w-full sm:w-auto text-sm"
+                    rightIcon={<ArrowRight className="h-4.5 w-4.5" />}
+                    onClick={() => navigateTo('/events')}
+                  >
+                    Explore Events
+                  </Button>
+                </motion.div>
+                <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
+                  <Button
+                    variant="outline"
+                    className="h-[50px] px-8 bg-white border border-slate-200/80 hover:bg-[#EDE8F5]/30 hover:border-slate-300 text-[#0F1B4D] font-bold rounded-[16px] shadow-sm hover:shadow-md transition-all duration-200 w-full sm:w-auto text-sm"
+                    onClick={() => navigateTo('/institution/register')}
+                  >
+                    Register Institution
+                  </Button>
+                </motion.div>
               </>
             )}
           </div>
         </motion.div>
       </section>
+      </div>
 
       {/* Secure Campus Portals Gateway */}
       <section className="space-y-4 py-4">

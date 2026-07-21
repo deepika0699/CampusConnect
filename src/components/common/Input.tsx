@@ -25,7 +25,7 @@ export const Input: React.FC<InputProps> = ({
       )}
       <input
         id={id}
-        className={`w-full px-3.5 py-2 border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm transition-all duration-150 disabled:bg-slate-50 disabled:text-slate-500 ${
+        className={`w-full px-3.5 py-2 border border-slate-200/80 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-primary/10 focus:border-brand-primary text-sm hover:border-slate-300 transition-all duration-200 disabled:bg-slate-50 disabled:text-slate-500 ${
           error ? 'border-rose-400 focus:ring-rose-500/10 focus:border-rose-500' : ''
         } ${className}`}
         {...props}
@@ -61,7 +61,7 @@ export const Select: React.FC<SelectProps> = ({
       )}
       <select
         id={id}
-        className={`w-full px-3.5 py-2 border border-slate-200 rounded-lg text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm transition-all duration-150 disabled:bg-slate-50 disabled:text-slate-500 ${
+        className={`w-full px-3.5 py-2 border border-slate-200/80 rounded-xl text-slate-900 bg-white focus:outline-none focus:ring-4 focus:ring-brand-primary/10 focus:border-brand-primary text-sm hover:border-slate-300 transition-all duration-200 disabled:bg-slate-50 disabled:text-slate-500 ${
           error ? 'border-rose-400 focus:ring-rose-500/10 focus:border-rose-500' : ''
         } ${className}`}
         {...props}
@@ -102,7 +102,7 @@ export const Textarea: React.FC<TextareaProps> = ({
       <textarea
         id={id}
         rows={rows}
-        className={`w-full px-3.5 py-2 border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm transition-all duration-150 disabled:bg-slate-50 disabled:text-slate-500 ${
+        className={`w-full px-3.5 py-2 border border-slate-200/80 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-primary/10 focus:border-brand-primary text-sm hover:border-slate-300 transition-all duration-200 disabled:bg-slate-50 disabled:text-slate-500 ${
           error ? 'border-rose-400 focus:ring-rose-500/10 focus:border-rose-500' : ''
         } ${className}`}
         {...props}

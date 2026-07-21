@@ -63,7 +63,7 @@ interface AppContextProps {
   markAttendance: (registrationId: string, attended: boolean) => void;
   clearNotification: (id: string) => void;
   markNotificationRead: (id: string) => void;
-  addNotification: (title: string, message: string, type: 'info' | 'success' | 'warning' | 'certificate', userId?: string, collegeId?: string) => void;
+  addNotification: (title: string, message: string, type: string, userId?: string, collegeId?: string, relatedEventId?: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextProps | undefined>(undefined);
@@ -427,8 +427,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const unique: Notification[] = [];
         combined.forEach(n => {
           if (n && n.id && !seen.has(n.id)) {
-            seen.add(n.id);
-            unique.push(n);
+            // Client-side filter to omit any legacy login, logout, or session notifications
+            const isLegacyAuth = 
+              (n.title && (
+                n.title.toLowerCase().includes('welcome back') ||
+                n.title.toLowerCase().includes('goodbye') ||
+                n.title.toLowerCase().includes('context switched') ||
+                n.title.toLowerCase().includes('login')
+              )) ||
+              (n.message && (
+                n.message.toLowerCase().includes('logged in') ||
+                n.message.toLowerCase().includes('logged out') ||
+                n.message.toLowerCase().includes('session') ||
+                n.message.toLowerCase().includes('dashboard')
+              ));
+
+            if (!isLegacyAuth) {
+              seen.add(n.id);
+              unique.push(n);
+            }
           }
         });
         unique.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -487,10 +504,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addNotification = async (
     title: string,
     message: string,
-    type: 'info' | 'success' | 'warning' | 'certificate',
+    type: string,
     userId?: string,
-    collegeId?: string
+    collegeId?: string,
+    relatedEventId?: string
   ) => {
+    // Robust filter to completely prevent writing auth, session, or dashboard access notifications to Firestore
+    const isAuthNotification = 
+      (title && (
+        title.toLowerCase().includes('welcome back') ||
+        title.toLowerCase().includes('goodbye') ||
+        title.toLowerCase().includes('context switched') ||
+        title.toLowerCase().includes('login')
+      )) ||
+      (message && (
+        message.toLowerCase().includes('logged in') ||
+        message.toLowerCase().includes('logged out') ||
+        message.toLowerCase().includes('session') ||
+        message.toLowerCase().includes('dashboard')
+      ));
+
+    if (isAuthNotification) {
+      console.log('Skipping auth/session/dashboard notification creation in Firestore:', title, message);
+      return;
+    }
+
     const newNot: Notification = {
       id: `not_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       title,
@@ -499,10 +537,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       read: false,
       createdAt: new Date().toISOString(),
       collegeId: collegeId || currentUser?.collegeId || '',
-      userId: userId || ''
+      userId: userId || '',
+      relatedEventId: relatedEventId || ''
     };
     try {
-      await setDoc(doc(db, 'notifications', newNot.id), newNot);
+      await setDoc(doc(db, 'notifications', newNot.id), cleanObj(newNot));
     } catch (e) {
       console.error("Error creating notification document:", e);
     }
@@ -524,7 +563,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         signInWithEmailAndPassword(auth, foundUser.email, userPassword)
           .then(() => {
             setCurrentUser(foundUser);
-            addNotification('Welcome back!', `Logged in successfully as ${foundUser.name} (${foundUser.role.toUpperCase()}) at ${foundUser.collegeName}.`, 'success');
+            // addNotification('Welcome back!', `Logged in successfully as ${foundUser.name} (${foundUser.role.toUpperCase()}) at ${foundUser.collegeName}.`, 'success');
             if (foundUser.role === 'student') navigateTo('/student/dashboard');
             else if (foundUser.role === 'coordinator') navigateTo('/coordinator/dashboard');
             else if (foundUser.role === 'admin') navigateTo('/admin/dashboard');
@@ -553,7 +592,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   setCurrentUser(foundUser);
                 }
                 
-                addNotification('Welcome back!', `Successfully restored login as ${foundUser.name}.`, 'success');
+                // addNotification('Welcome back!', `Successfully restored login as ${foundUser.name}.`, 'success');
                 if (foundUser.role === 'student') navigateTo('/student/dashboard');
                 else if (foundUser.role === 'coordinator') navigateTo('/coordinator/dashboard');
                 else if (foundUser.role === 'admin') navigateTo('/admin/dashboard');
@@ -625,7 +664,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             } else {
               setCurrentUser(foundUser);
             }
-            addNotification('Welcome back!', `Logged in successfully as ${foundUser.name}.`, 'success');
+            // addNotification('Welcome back!', `Logged in successfully as ${foundUser.name}.`, 'success');
             if (foundUser.role === 'student') navigateTo('/student/dashboard');
             else if (foundUser.role === 'coordinator') navigateTo('/coordinator/dashboard');
             else if (foundUser.role === 'admin') navigateTo('/admin/dashboard');
@@ -653,7 +692,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       setCurrentUser(profile);
-      addNotification('Welcome back!', `Logged in successfully as ${profile.name}.`, 'success');
+      // addNotification('Welcome back!', `Logged in successfully as ${profile.name}.`, 'success');
       
       if (profile.role === 'student') navigateTo('/student/dashboard');
       else if (profile.role === 'coordinator') navigateTo('/coordinator/dashboard');
@@ -777,7 +816,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCurrentUser(updated);
       try {
         await setDoc(doc(db, 'users', currentUser.id), updated);
-        addNotification('Context Switched', `Now viewing as a member of ${collegeName}.`, 'info');
+        // addNotification('Context Switched', `Now viewing as a member of ${collegeName}.`, 'info');
       } catch (e) {
         console.error("Error switching college context:", e);
       }
@@ -805,7 +844,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.error("Signout error:", e);
     }
     setCurrentUser(null);
-    addNotification('Goodbye!', `${prevName} logged out successfully.`, 'info');
+    // addNotification('Goodbye!', `${prevName} logged out successfully.`, 'info');
     navigateTo('/');
   };
 

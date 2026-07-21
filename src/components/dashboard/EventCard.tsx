@@ -46,19 +46,28 @@ export const EventCard: React.FC<EventCardProps> = ({
   const fillPercentage = Math.min(100, (event.currentParticipants / event.maxParticipants) * 100);
 
   return (
-    <Card hoverable animate delay={delay} className="flex flex-col h-full bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden group">
+    <Card hoverable animate delay={delay} className="flex flex-col h-full bg-white border border-slate-100 rounded-2xl shadow-soft overflow-hidden group relative">
+      {/* Dynamic Category Accent Strip */}
+      <div className={`absolute top-0 left-0 right-0 h-1.5 z-30 ${
+        event.category === 'tech' ? 'bg-[#3D52A0]' : 
+        event.category === 'cultural' ? 'bg-[#7091E6]' : 
+        event.category === 'academic' ? 'bg-[#E8D59E]' : 
+        event.category === 'sports' ? 'bg-emerald-500' : 
+        'bg-[#8697C4]'
+      }`} />
+
       {/* Event Header Image */}
       <div className="relative w-full h-48 overflow-hidden bg-slate-900 shrink-0">
         <img
           src={event.imageUrl}
           alt={event.title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-108"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent" />
         
         {/* Badges Overlay */}
-        <div className="absolute top-4 left-4 flex gap-2">
-          <span className={`px-2.5 py-1 text-xs font-semibold rounded-lg border backdrop-blur-md shadow-sm ${style.bg}`}>
+        <div className="absolute top-5 left-5 flex flex-wrap gap-2 z-20">
+          <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border backdrop-blur-md shadow-sm ${style.bg}`}>
             {style.label}
           </span>
           {event.status === 'pending' && (
@@ -74,8 +83,8 @@ export const EventCard: React.FC<EventCardProps> = ({
         </div>
 
         {/* Date overlay card */}
-        <div className="absolute bottom-4 right-4 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl shadow-md text-center flex flex-col min-w-[50px]">
-          <span className="text-[10px] uppercase font-bold text-slate-400">
+        <div className="absolute bottom-4 right-4 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl shadow-md text-center flex flex-col min-w-[50px] z-10 border border-slate-100/50">
+          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
             {new Date(event.date).toLocaleDateString([], { month: 'short' })}
           </span>
           <span className="text-lg font-extrabold text-slate-800 leading-none">

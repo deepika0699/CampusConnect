@@ -2,7 +2,7 @@
  * CampusConnect Main Router and Layout Module
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/common/Navbar';
 import { Sidebar } from './components/common/Sidebar';
@@ -13,6 +13,7 @@ import { EventDiscoveryPage } from './pages/public/EventDiscoveryPage';
 import { EventDetailsPage } from './pages/public/EventDetailsPage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
+import { CertificateVerificationPage } from './pages/public/CertificateVerificationPage';
 
 // Student Page Imports
 import { StudentDashboard } from './pages/student/StudentDashboard';
@@ -41,6 +42,19 @@ const AppContent: React.FC = () => {
   const { currentPath, currentUser, navigateTo } = useApp();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  // Redirection effect for non-authenticated users accessing protected dashboard routes
+  useEffect(() => {
+    const pathName = currentPath.split('?')[0];
+    const isProtected = 
+      pathName.startsWith('/student/') || 
+      pathName.startsWith('/coordinator/') || 
+      pathName.startsWith('/admin/');
+      
+    if (isProtected && !currentUser) {
+      navigateTo('/login');
+    }
+  }, [currentPath, currentUser, navigateTo]);
+
   // --- Dynamic Route Matcher & Role Authorization Guard ---
   const renderRoute = () => {
     // Parse query/hash parameters safely
@@ -51,6 +65,7 @@ const AppContent: React.FC = () => {
     if (pathName === '/events' || currentPath.includes('category=')) return <EventDiscoveryPage />;
     if (pathName.startsWith('/events/')) return <EventDetailsPage />;
     if (pathName === '/institution/register') return <LandingPage registerFocused={true} />;
+    if (pathName.startsWith('/verify/')) return <CertificateVerificationPage />;
     
     // 2. Auth Routes
     if (pathName === '/login') return <LoginPage />;
@@ -59,7 +74,6 @@ const AppContent: React.FC = () => {
     // 3. Student Routes (Requires student role)
     if (pathName.startsWith('/student/')) {
       if (!currentUser) {
-        navigateTo('/login');
         return <LoginPage />;
       }
       if (currentUser.role !== 'student') {
@@ -89,7 +103,6 @@ const AppContent: React.FC = () => {
     // 4. Coordinator Routes (Requires coordinator role)
     if (pathName.startsWith('/coordinator/')) {
       if (!currentUser) {
-        navigateTo('/login');
         return <LoginPage />;
       }
       if (currentUser.role !== 'coordinator') {
@@ -117,7 +130,6 @@ const AppContent: React.FC = () => {
     // 5. Admin Routes (Requires admin role)
     if (pathName.startsWith('/admin/')) {
       if (!currentUser) {
-        navigateTo('/login');
         return <LoginPage />;
       }
       if (currentUser.role !== 'admin') {
@@ -153,7 +165,7 @@ const AppContent: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50/50 flex flex-col font-sans">
+    <div className="min-h-screen atmospheric-bg flex flex-col font-sans">
       {/* Top Header */}
       <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
 

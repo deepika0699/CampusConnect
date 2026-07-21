@@ -5,9 +5,10 @@ import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { Award, Share2, Download, Printer, ShieldCheck, User, Calendar, BookOpen, Clock } from 'lucide-react';
 import { Certificate } from '../../types';
+import { generateCertificatePdf } from '../../lib/certificatePdf';
 
 export const StudentCertificates: React.FC = () => {
-  const { currentUser, certificates } = useApp();
+  const { currentUser, certificates, colleges } = useApp();
   const [selectedCert, setSelectedCert] = useState<Certificate | null>(null);
 
   if (!currentUser) return null;
@@ -73,17 +74,24 @@ export const StudentCertificates: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              leftIcon={<Printer className="h-4 w-4" />}
-              onClick={handlePrint}
+              leftIcon={<Download className="h-4 w-4" />}
+              onClick={async () => {
+                if (!selectedCert) return;
+                const collegeName = colleges.find(c => c.id === selectedCert.collegeId)?.name || currentUser.collegeName || 'ANITS';
+                await generateCertificatePdf(selectedCert, collegeName);
+              }}
             >
-              Print / Save PDF
+              Download PDF
             </Button>
             <Button
               variant="primary"
               size="sm"
               leftIcon={<Share2 className="h-4 w-4" />}
               onClick={() => {
-                alert(`Shareable Verification URL: https://campusconnect.edu/verify/${selectedCert?.verificationCode}`);
+                if (!selectedCert) return;
+                const verifyUrl = `${window.location.origin}/verify/${selectedCert.verificationCode}`;
+                navigator.clipboard.writeText(verifyUrl);
+                alert(`Shareable Verification URL copied to clipboard:\n${verifyUrl}`);
               }}
             >
               Share Credential

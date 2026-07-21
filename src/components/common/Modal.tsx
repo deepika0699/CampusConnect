@@ -54,10 +54,10 @@ export const Modal: React.FC<ModalProps> = ({
 
           {/* Modal Content Card */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            initial={{ opacity: 0, scale: 0.95, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{ type: 'spring', duration: 0.35, bounce: 0.15 }}
+            exit={{ opacity: 0, scale: 0.95, y: 12 }}
+            transition={{ type: 'spring', duration: 0.45, bounce: 0.2 }}
             className={`relative w-full ${sizes[size]} bg-white border border-slate-100 rounded-2xl shadow-xl z-10 flex flex-col overflow-hidden max-h-[90vh]`}
           >
             {/* Header */}

@@ -6,6 +6,7 @@ import { Button } from '../../components/common/Button';
 import { Calendar, Award, ListOrdered, Sparkles, MapPin, ArrowRight, Download, Clock, Ticket } from 'lucide-react';
 import { CountdownTimer } from '../../components/common/CountdownTimer';
 import { Event } from '../../types';
+import { generateCertificatePdf } from '../../lib/certificatePdf';
 
 export const StudentDashboard: React.FC = () => {
   const { 
@@ -13,7 +14,8 @@ export const StudentDashboard: React.FC = () => {
     registrations, 
     certificates, 
     events, 
-    navigateTo 
+    navigateTo,
+    colleges
   } = useApp();
 
   if (!currentUser) return null;
@@ -355,9 +357,12 @@ export const StudentDashboard: React.FC = () => {
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled
-                        className="w-1/2 text-xs py-1.5 text-slate-400 border-slate-100 bg-slate-50 cursor-not-allowed flex items-center justify-center gap-1 hover:bg-slate-50"
-                        title="PDF generation pending infrastructure deployment"
+                        className="w-1/2 text-xs py-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50 flex items-center justify-center gap-1"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const collegeName = colleges.find(c => c.id === cert.collegeId)?.name || currentUser.collegeName || 'ANITS';
+                          await generateCertificatePdf(cert, collegeName);
+                        }}
                       >
                         <Download className="h-3 w-3" /> Download
                       </Button>

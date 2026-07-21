@@ -17,9 +17,9 @@ export const Card: React.FC<CardProps> = ({
   delay = 0,
   ...props
 }) => {
-  const baseStyle = `bg-white border border-slate-100 rounded-xl overflow-hidden shadow-sm shadow-slate-100/50`;
-  const glassStyle = glass ? 'bg-white/80 backdrop-blur-md border border-white/40' : '';
-  const hoverStyle = hoverable ? 'hover:shadow-md hover:border-slate-200/80 transition-all duration-300 hover:-translate-y-0.5' : '';
+  const baseStyle = `bg-white border border-slate-100/80 rounded-2xl overflow-hidden shadow-soft`;
+  const glassStyle = glass ? 'bg-white/85 backdrop-blur-sm border border-white/40' : '';
+  const hoverStyle = hoverable ? 'hover:shadow-soft-lg hover:border-slate-200/80 transition-all duration-300 hover:-translate-y-1' : '';
 
   if (animate) {
     return (

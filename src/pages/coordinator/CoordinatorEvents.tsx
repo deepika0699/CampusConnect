@@ -4,11 +4,11 @@ import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { Input, Textarea, Select } from '../../components/common/Input';
-import { BookOpen, Edit, Trash2, Calendar, Users, ShieldAlert, AlertCircle } from 'lucide-react';
+import { BookOpen, Edit, Trash2, Calendar, Users, ShieldAlert, AlertCircle, Megaphone } from 'lucide-react';
 import { Event } from '../../types';
 
 export const CoordinatorEvents: React.FC = () => {
-  const { currentUser, events, updateEvent, deleteEvent, navigateTo } = useApp();
+  const { currentUser, events, registrations, updateEvent, deleteEvent, addNotification, navigateTo } = useApp();
   
   // Edit Event Modal states
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
@@ -17,6 +17,12 @@ export const CoordinatorEvents: React.FC = () => {
   const [editMaxCapacity, setEditMaxCapacity] = useState('100');
   const [editDate, setEditDate] = useState('');
   const [editVisibility, setEditVisibility] = useState<'campus_only' | 'open'>('campus_only');
+
+  // Broadcast Modal states
+  const [broadcastEvent, setBroadcastEvent] = useState<Event | null>(null);
+  const [broadcastCategory, setBroadcastCategory] = useState('Venue Changed');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
   if (!currentUser) return null;
 
@@ -42,6 +48,76 @@ export const CoordinatorEvents: React.FC = () => {
       visibility: editVisibility
     });
     setEditingEvent(null);
+  };
+
+  const handleOpenBroadcast = (evt: Event) => {
+    if (evt.coordinatorId !== currentUser.id) return;
+    setBroadcastEvent(evt);
+    setBroadcastCategory('Venue Changed');
+    setBroadcastMessage('');
+  };
+
+  const handleSendBroadcast = async () => {
+    if (!broadcastEvent) return;
+    if (broadcastEvent.coordinatorId !== currentUser.id) return;
+
+    // Find all registrations for this specific event that are not cancelled
+    const registeredForEvent = registrations.filter(
+      r => r.eventId === broadcastEvent.id && r.status === 'registered'
+    );
+
+    if (registeredForEvent.length === 0) {
+      addNotification(
+        'Broadcast Not Sent',
+        'There are currently no active registered students for this event to receive notifications.',
+        'warning',
+        currentUser.id,
+        currentUser.collegeId
+      );
+      setBroadcastEvent(null);
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      // Map broadcastCategory to the supported notification types:
+      // registration_success, registration_cancelled, attendance_confirmed, certificate_ready, event_update, venue_changed, event_cancelled
+      let notificationType = 'event_update';
+      if (broadcastCategory === 'Venue Changed') {
+        notificationType = 'venue_changed';
+      }
+
+      const broadcastTitle = `[${broadcastCategory}] ${broadcastEvent.title}`;
+
+      // Create a notification doc for each registered student of the event
+      for (const reg of registeredForEvent) {
+        if (reg.collegeId === currentUser.collegeId) {
+          await addNotification(
+            broadcastTitle,
+            broadcastMessage,
+            notificationType,
+            reg.studentId,
+            currentUser.collegeId,
+            broadcastEvent.id
+          );
+        }
+      }
+
+      addNotification(
+        'Broadcast Dispatched',
+        `Your broadcast was successfully sent to ${registeredForEvent.length} registered students.`,
+        'success',
+        currentUser.id,
+        currentUser.collegeId
+      );
+
+      setBroadcastEvent(null);
+      setBroadcastMessage('');
+    } catch (err) {
+      console.error("Error dispatching broadcast:", err);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -71,7 +147,7 @@ export const CoordinatorEvents: React.FC = () => {
           {coordEvents.map((evt) => (
             <Card 
               key={evt.id} 
-              className="p-5 bg-white border border-slate-150 rounded-3xl shadow-sm flex flex-col justify-between h-56"
+              className="p-5 bg-white border border-slate-150 rounded-3xl shadow-sm flex flex-col justify-between min-h-[230px]"
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-4">
@@ -105,20 +181,31 @@ export const CoordinatorEvents: React.FC = () => {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-2 border-t border-slate-50 pt-3">
+              <div className="flex gap-1.5 border-t border-slate-50 pt-3 flex-wrap">
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  className="flex-1"
+                  className="flex-1 min-w-[65px]"
                   leftIcon={<Edit className="h-3.5 w-3.5" />}
                   onClick={() => handleOpenEdit(evt)}
                 >
                   Edit
                 </Button>
+                {evt.status === 'approved' && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex-1 min-w-[85px] border-indigo-100 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700"
+                    leftIcon={<Megaphone className="h-3.5 w-3.5" />}
+                    onClick={() => handleOpenBroadcast(evt)}
+                  >
+                    Broadcast
+                  </Button>
+                )}
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className="flex-1 text-rose-600 hover:bg-rose-50"
+                  className="flex-1 min-w-[65px] text-rose-600 hover:bg-rose-50"
                   leftIcon={<Trash2 className="h-3.5 w-3.5" />}
                   onClick={() => deleteEvent(evt.id)}
                 >
@@ -181,6 +268,56 @@ export const CoordinatorEvents: React.FC = () => {
               className="bg-slate-50 border-slate-200"
             />
           </div>
+        </div>
+      </Modal>
+
+      {/* Broadcast Announcement Modal */}
+      <Modal
+        isOpen={!!broadcastEvent}
+        onClose={() => setBroadcastEvent(null)}
+        title="Send Event Broadcast Announcement"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setBroadcastEvent(null)} disabled={isSending}>Cancel</Button>
+            <Button 
+              variant="primary" 
+              onClick={handleSendBroadcast} 
+              disabled={isSending || !broadcastMessage.trim()}
+            >
+              {isSending ? 'Sending...' : 'Send Broadcast'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl">
+            <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wider mb-1">Target Audience</h4>
+            <p className="text-xs text-indigo-750 font-semibold leading-relaxed">
+              This message will be sent in real-time as a personal notification to all <span className="font-extrabold underline">{broadcastEvent ? registrations.filter(r => r.eventId === broadcastEvent.id && r.status === 'registered').length : 0} students</span> currently registered for <span className="font-extrabold">"{broadcastEvent?.title}"</span>.
+            </p>
+          </div>
+
+          <Select
+            label="Announcement Category"
+            options={[
+              { value: 'Venue Changed', label: 'Venue Changed' },
+              { value: 'Schedule Changed', label: 'Schedule Changed' },
+              { value: 'Important Announcement', label: 'Important Announcement' },
+              { value: 'Custom Message', label: 'Custom Message' }
+            ]}
+            value={broadcastCategory}
+            onChange={e => setBroadcastCategory(e.target.value)}
+            className="bg-slate-50 border-slate-200"
+          />
+
+          <Textarea
+            label="Broadcast Message"
+            placeholder="Type your message to registered participants..."
+            value={broadcastMessage}
+            onChange={e => setBroadcastMessage(e.target.value)}
+            rows={4}
+            className="bg-slate-50 border-slate-200"
+          />
         </div>
       </Modal>
     </div>

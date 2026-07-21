@@ -111,11 +111,12 @@ export interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'info' | 'success' | 'warning' | 'certificate';
+  type: 'info' | 'success' | 'warning' | 'certificate' | 'registration_success' | 'registration_cancelled' | 'attendance_confirmed' | 'certificate_ready' | 'event_update' | 'venue_changed' | 'event_cancelled' | 'campus_announcement' | string;
   read: boolean;
   createdAt: string;
   collegeId?: string;
   userId?: string;
+  relatedEventId?: string;
 }
 
 export interface AppState {
