@@ -50,7 +50,9 @@ export interface Event {
   mapLocation?: {
     lat: number;
     lng: number;
-    name: string;
+    name?: string;
+    address?: string;
+    mapLabel?: string;
   };
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
@@ -58,6 +60,7 @@ export interface Event {
   maxParticipants: number;
   currentParticipants: number;
   imageUrl: string;
+  coverImage?: string;
   category: 'academic' | 'cultural' | 'sports' | 'tech' | 'career';
   tags: string[];
   status: 'pending' | 'approved' | 'rejected';
@@ -73,6 +76,30 @@ export interface Event {
   endTime?: string;
   createdAt?: string;
   updatedAt?: string;
+
+  // Phase 6D Fields - Post-Approval Edit Window & Audit Trail
+  approvedAt?: string;
+  editLocked?: boolean;
+  lastEditedAt?: string;
+  lastEditedBy?: string;
+  editWindowExpiresAt?: string;
+}
+
+export interface EventAuditLog {
+  id: string;
+  eventId: string;
+  eventTitle: string;
+  collegeId: string;
+  editedBy: string;
+  editedByName?: string;
+  editedByRole: 'coordinator' | 'admin';
+  editedAt: string;
+  changes: Array<{
+    field: string;
+    oldValue: any;
+    newValue: any;
+  }>;
+  editWindowRemainingMs: number;
 }
 
 export interface Registration {

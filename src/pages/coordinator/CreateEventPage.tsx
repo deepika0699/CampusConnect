@@ -5,6 +5,8 @@ import { Button } from '../../components/common/Button';
 import { Input, Select, Textarea } from '../../components/common/Input';
 import { BookOpen, Sparkles, AlertCircle } from 'lucide-react';
 import { Event } from '../../types';
+import { extractCoordinates } from '../../lib/utils';
+import { PosterUpload } from '../../components/common/PosterUpload';
 
 export const CreateEventPage: React.FC = () => {
   const { createEvent, navigateTo, currentUser, colleges } = useApp();
@@ -22,6 +24,28 @@ export const CreateEventPage: React.FC = () => {
   const [locationDetails, setLocationDetails] = useState('');
   const [collegeName, setCollegeName] = useState(currentUser?.collegeName || 'ANITS');
   const [clubOrg, setClubOrg] = useState('');
+
+  // Venue & Navigation mapping fields
+  const [gmapsLink, setGmapsLink] = useState('');
+  const [venueAddress, setVenueAddress] = useState('');
+  const [mapLabel, setMapLabel] = useState('');
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [extractedCoords, setExtractedCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  const handleGmapsLinkChange = (link: string) => {
+    setGmapsLink(link);
+    if (!link.trim()) {
+      setExtractedCoords(null);
+      return;
+    }
+    const coords = extractCoordinates(link);
+    setExtractedCoords(coords);
+    if (coords) {
+      setLatitude(coords.lat.toString());
+      setLongitude(coords.lng.toString());
+    }
+  };
 
   // Sync selected department when college departments load/change
   React.useEffect(() => {
@@ -86,13 +110,37 @@ export const CreateEventPage: React.FC = () => {
         registrationDeadline,
         maxParticipants: Number(maxParticipants),
         imageUrl: imageUrl || defaultImg[category],
+        coverImage: imageUrl || defaultImg[category],
         tags,
         visibility,
-        mapLocation: {
-          lat: 17.7812 + (Math.random() - 0.5) * 0.01,
-          lng: 83.3768 + (Math.random() - 0.5) * 0.01,
-          name: venue
-        }
+        mapLocation: (() => {
+          const latNum = parseFloat(latitude);
+          const lngNum = parseFloat(longitude);
+          const isLatValid = !isNaN(latNum) && latNum >= -90 && latNum <= 90;
+          const isLngValid = !isNaN(lngNum) && lngNum >= -180 && lngNum <= 180;
+          
+          if (isLatValid && isLngValid) {
+            return {
+              lat: latNum,
+              lng: lngNum,
+              address: venueAddress || venue,
+              mapLabel: mapLabel || title || "Event Venue"
+            };
+          } else if (extractedCoords) {
+            return {
+              lat: extractedCoords.lat,
+              lng: extractedCoords.lng,
+              address: venueAddress || venue,
+              mapLabel: mapLabel || title || "Event Venue"
+            };
+          } else {
+            return {
+              lat: 17.7812 + (Math.random() - 0.5) * 0.01,
+              lng: 83.3768 + (Math.random() - 0.5) * 0.01,
+              name: venue
+            };
+          }
+        })()
       });
       setIsSubmitting(false);
       navigateTo('/coordinator/dashboard');
@@ -248,6 +296,124 @@ export const CreateEventPage: React.FC = () => {
             />
           </div>
 
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2 pt-2">Venue & Navigation</h3>
+          
+          <div className="grid grid-cols-1 gap-4">
+            <Input
+              label="Google Maps Link (Optional)"
+              type="url"
+              placeholder="e.g. https://www.google.com/maps?q=17.822145,83.342812"
+              value={gmapsLink}
+              onChange={e => handleGmapsLinkChange(e.target.value)}
+              className="bg-slate-50 border-slate-200"
+              helperText="Paste a Google Maps link to automatically fill in the coordinates below."
+            />
+
+            {/* Live coordinates feedback indicator */}
+            {gmapsLink.trim() && (
+              <div className="text-xs font-bold -mt-2 pb-2 pl-1 transition-all duration-200">
+                {extractedCoords ? (
+                  <span className="text-emerald-600 flex items-center gap-1">
+                    ✓ Coordinates detected: {extractedCoords.lat.toFixed(6)}, {extractedCoords.lng.toFixed(6)}
+                  </span>
+                ) : (gmapsLink.includes('maps.app.goo.gl') || gmapsLink.includes('goo.gl')) ? (
+                  <span className="text-amber-600 flex items-start gap-1 leading-normal max-w-prose">
+                    Mobile share link detected. Open the link in Google Maps and copy the coordinates shown in the search bar if automatic extraction is not available.
+                  </span>
+                ) : (
+                  <span className="text-amber-600 flex items-center gap-1">
+                    Could not detect coordinates from this link.
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Latitude"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                min="-90"
+                max="90"
+                placeholder="e.g. 17.822145"
+                value={latitude}
+                onChange={e => setLatitude(e.target.value)}
+                className="bg-slate-50 border-slate-200"
+                error={
+                  latitude && (isNaN(parseFloat(latitude)) || parseFloat(latitude) < -90 || parseFloat(latitude) > 90)
+                    ? "Latitude must be between -90 and 90"
+                    : undefined
+                }
+                helperText="Enter a value from -90 to 90."
+              />
+              <Input
+                label="Longitude"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                min="-180"
+                max="180"
+                placeholder="e.g. 83.342812"
+                value={longitude}
+                onChange={e => setLongitude(e.target.value)}
+                className="bg-slate-50 border-slate-200"
+                error={
+                  longitude && (isNaN(parseFloat(longitude)) || parseFloat(longitude) < -180 || parseFloat(longitude) > 180)
+                    ? "Longitude must be between -180 and 180"
+                    : undefined
+                }
+                helperText="Enter a value from -180 to 180."
+              />
+            </div>
+
+            {/* Quick Tip Helper Card */}
+            <div className="p-4 sm:p-5 bg-slate-50 border border-slate-100 rounded-3xl text-xs text-slate-600 space-y-3">
+              <h4 className="font-extrabold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
+                💡 Quick Tip: Finding Exact Coordinates
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="font-bold text-slate-700">Desktop:</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-slate-500 pl-1 leading-relaxed">
+                    <li>Open Google Maps</li>
+                    <li>Right-click the exact venue location</li>
+                    <li>Click the coordinates shown at the bottom</li>
+                  </ul>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-slate-700">Mobile:</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-slate-500 pl-1 leading-relaxed">
+                    <li>Long-press a location pin</li>
+                    <li>The coordinates appear in the search bar or bottom sheet</li>
+                    <li>Copy those numbers directly into Latitude and Longitude</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Venue Address (Optional)"
+                type="text"
+                placeholder="e.g. ANITS Main Auditorium"
+                value={venueAddress}
+                onChange={e => setVenueAddress(e.target.value)}
+                className="bg-slate-50 border-slate-200"
+                helperText="Physical address of the location."
+              />
+              <Input
+                label="Map Marker Label (Optional)"
+                type="text"
+                placeholder="e.g. Tech Fest Venue"
+                value={mapLabel}
+                onChange={e => setMapLabel(e.target.value)}
+                className="bg-slate-50 border-slate-200"
+                helperText="Optional descriptive label for the map marker pin."
+              />
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <Input
               label="Event Date"
@@ -283,7 +449,7 @@ export const CreateEventPage: React.FC = () => {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Maximum Occupancy Capacity"
               type="number"
@@ -295,15 +461,6 @@ export const CreateEventPage: React.FC = () => {
               className="bg-slate-50 border-slate-200"
             />
             <Input
-              label="Cover Image Address (Optional)"
-              type="url"
-              placeholder="https://images.unsplash.com/photo-..."
-              value={imageUrl}
-              onChange={e => setImageUrl(e.target.value)}
-              className="bg-slate-50 border-slate-200"
-              helperText="Prefills beautiful generic category overlays if empty."
-            />
-            <Input
               label="Tags / Hashtags (Comma-separated)"
               type="text"
               placeholder="e.g. Google, Coding, Prizes"
@@ -311,6 +468,17 @@ export const CreateEventPage: React.FC = () => {
               onChange={e => setTagsInput(e.target.value)}
               className="bg-slate-50 border-slate-200"
               helperText="Separate multiple keywords with commas."
+            />
+          </div>
+
+          <div className="pt-2 border-t border-slate-100">
+            <PosterUpload
+              campusId={currentUser?.collegeId || currentUser?.collegeName || 'ANITS'}
+              eventId={`event-${Date.now()}`}
+              currentValue={imageUrl}
+              onUploadComplete={(url) => setImageUrl(url)}
+              label="Event Cover Poster"
+              helperText="Paste a public HTTPS image URL (Cloudinary, Imgur, GitHub raw, Unsplash, etc.)."
             />
           </div>
 

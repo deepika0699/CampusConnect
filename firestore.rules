@@ -168,5 +168,32 @@ service cloud.firestore {
       allow delete: if isLoggedIn() && 
                     resource.data.userId == request.auth.uid;
     }
+
+    // Event Audit Logs Collection - Immutable audit trail
+    match /eventAuditLogs/{auditId} {
+      allow read: if isLoggedIn() && (
+        // Campus admins can read all audit logs for their campus
+        (getUserData().role == 'admin' && resource.data.collegeId == getUserData().collegeId) ||
+        
+        // Coordinators can read logs related to events they edited or organized in their campus
+        (getUserData().role == 'coordinator' && 
+         resource.data.collegeId == getUserData().collegeId && 
+         (resource.data.editedBy == request.auth.uid || 
+          get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.coordinatorId == request.auth.uid))
+      );
+      
+      allow create: if isLoggedIn() && (
+        // Admins can create audit logs for events in their campus
+        (getUserData().role == 'admin' && request.resource.data.collegeId == getUserData().collegeId) ||
+        
+        // Coordinators can create audit logs only when editing their own event in their campus
+        (getUserData().role == 'coordinator' && 
+         request.resource.data.collegeId == getUserData().collegeId && 
+         request.resource.data.editedBy == request.auth.uid && 
+         get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.coordinatorId == request.auth.uid)
+      );
+      
+      allow update, delete: if false; // Immutable audit trail cannot be modified or erased
+    }
   }
 }

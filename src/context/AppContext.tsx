@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, Event, Registration, Certificate, Notification, UserRole, Institution } from '../types';
+import { User, Event, Registration, Certificate, Notification, UserRole, Institution, EventAuditLog } from '../types';
 import { MOCK_USERS, INITIAL_EVENTS, INITIAL_REGISTRATIONS, INITIAL_CERTIFICATES, INITIAL_NOTIFICATIONS, INITIAL_COLLEGES } from '../data/mockData';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { getEditWindowStatus, detectEventChanges } from '../lib/eventUtils';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -31,6 +32,7 @@ interface AppContextProps {
   registrations: Registration[];
   certificates: Certificate[];
   notifications: Notification[];
+  eventAuditLogs: EventAuditLog[];
   colleges: Institution[];
   currentPath: string;
   navigateTo: (path: string) => void;
@@ -60,6 +62,8 @@ interface AppContextProps {
   deleteEvent: (eventId: string) => void;
   approveEvent: (eventId: string) => void;
   rejectEvent: (eventId: string) => void;
+  unlockEventEditing: (eventId: string) => Promise<void>;
+  lockEventEditing: (eventId: string) => Promise<void>;
   markAttendance: (registrationId: string, attended: boolean) => void;
   clearNotification: (id: string) => void;
   markNotificationRead: (id: string) => void;
@@ -109,6 +113,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [eventAuditLogs, setEventAuditLogs] = useState<EventAuditLog[]>([]);
   const [colleges, setColleges] = useState<Institution[]>(INITIAL_COLLEGES);
 
   // --- Firebase Auth Session Synchronization ---
@@ -184,6 +189,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     let unsubRegs = () => {};
     let unsubCerts = () => {};
     let unsubNotifs = () => {};
+    let unsubAuditLogs = () => {};
     let unsubCoordinatorEvents = () => {};
     let unsubCoordinatorRegs = () => {};
     let unsubCoordinatorCerts = () => {};
@@ -213,6 +219,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setRegistrations([]);
       setCertificates([]);
       setNotifications([]);
+      setEventAuditLogs([]);
     } else {
       // Determined tenant-isolated collegeId
       const activeCollegeId = currentUser.collegeId || colleges.find(c => c.name === currentUser.collegeName)?.id || '';
@@ -485,6 +492,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         unsubPersonal();
         unsubBroadcast();
       };
+
+      // 6. Audit Logs Sync - Real-time subscription to college edit history (Admin & Coordinator only)
+      if (currentUser.role === 'admin' || currentUser.role === 'coordinator') {
+        const qAudit = query(
+          collection(db, 'eventAuditLogs'),
+          where('collegeId', '==', activeCollegeId)
+        );
+        unsubAuditLogs = onSnapshot(qAudit, (snapshot) => {
+          const loaded: EventAuditLog[] = [];
+          snapshot.forEach((d) => {
+            loaded.push(d.data() as EventAuditLog);
+          });
+          loaded.sort((a, b) => new Date(b.editedAt).getTime() - new Date(a.editedAt).getTime());
+          setEventAuditLogs(loaded);
+        }, (error) => {
+          console.warn(`Audit logs subscription notice for ${activeCollegeId}:`, error);
+          setEventAuditLogs([]);
+        });
+      } else {
+        setEventAuditLogs([]);
+      }
     }
 
     return () => {
@@ -494,6 +522,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubRegs();
       unsubCerts();
       unsubNotifs();
+      unsubAuditLogs();
       unsubCoordinatorEvents();
       unsubCoordinatorRegs();
       unsubCoordinatorCerts();
@@ -1031,6 +1060,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       maxParticipants: Number(eventData.maxParticipants) || 100,
       currentParticipants: 0,
       imageUrl: eventData.imageUrl || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&q=80&w=800',
+      coverImage: eventData.coverImage || eventData.imageUrl || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&q=80&w=800',
       category: eventData.category || 'tech',
       tags: eventData.tags || [],
       status: 'pending', // Pending Admin approval
@@ -1059,30 +1089,89 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateEvent = async (eventId: string, updatedData: Partial<Event>) => {
-    const changeData = {
-      ...updatedData,
-      updatedAt: new Date().toISOString()
-    };
-    await updateDoc(doc(db, 'events', eventId), changeData);
-    
     const ev = events.find(e => e.id === eventId);
-    if (ev) {
-      // Find all students registered for this event
+    if (!ev) return;
+
+    const nowStr = new Date().toISOString();
+    const editStatus = getEditWindowStatus(ev);
+
+    // Enforce 48h post-approval lock for coordinators
+    if (ev.status === 'approved' && currentUser?.role === 'coordinator') {
+      if (!editStatus.canEdit) {
+        addNotification(
+          'Edit Locked',
+          `The 48-hour post-approval edit window for "${ev.title}" has expired or been locked by an administrator.`,
+          'warning'
+        );
+        return;
+      }
+    }
+
+    const changes = detectEventChanges(ev, updatedData);
+
+    const changeData: Partial<Event> = {
+      ...updatedData,
+      lastEditedAt: nowStr,
+      lastEditedBy: currentUser?.name || 'Coordinator',
+      updatedAt: nowStr
+    };
+
+    await updateDoc(doc(db, 'events', eventId), cleanObj(changeData));
+
+    // Record Audit Trail if changes occurred
+    if (changes.length > 0) {
+      const auditLogId = `audit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const auditLog: EventAuditLog = {
+        id: auditLogId,
+        eventId,
+        eventTitle: updatedData.title || ev.title,
+        collegeId: ev.collegeId,
+        editedBy: currentUser?.id || 'unknown',
+        editedByName: currentUser?.name || 'User',
+        editedByRole: currentUser?.role === 'admin' ? 'admin' : 'coordinator',
+        editedAt: nowStr,
+        changes,
+        editWindowRemainingMs: editStatus.remainingMs === Infinity ? 48 * 60 * 60 * 1000 : editStatus.remainingMs
+      };
+
+      try {
+        await setDoc(doc(db, 'eventAuditLogs', auditLogId), cleanObj(auditLog));
+      } catch (err) {
+        console.error('Error recording audit log:', err);
+      }
+
+      // Notify registered students about updates
       const registeredStudents = registrations.filter(r => r.eventId === eventId && r.status === 'registered');
       for (const reg of registeredStudents) {
         await addNotification(
-          'Event Updated',
-          `The details for "${ev.title}" have been revised. Please check the event page.`,
-          'info',
+          'Event Details Revised',
+          `The details for "${ev.title}" have been updated. Please view the event page for details.`,
+          'event_update',
           reg.studentId,
-          ev.collegeId
+          ev.collegeId,
+          eventId
         );
       }
-      
+
+      // Notify college admins if coordinator edited post-approval
+      if (ev.status === 'approved' && currentUser?.role === 'coordinator') {
+        const admins = users.filter(u => u.role === 'admin' && u.collegeId === ev.collegeId);
+        for (const adm of admins) {
+          await addNotification(
+            'Coordinator Post-Approval Edit',
+            `Coordinator ${currentUser.name} revised ${changes.length} field(s) for approved event "${ev.title}".`,
+            'info',
+            adm.id,
+            ev.collegeId,
+            eventId
+          );
+        }
+      }
+
       if (currentUser) {
         await addNotification(
-          'Event Updated',
-          `Event "${ev.title}" details have been successfully revised.`,
+          'Event Revision Saved',
+          `Event "${ev.title}" details updated successfully (${changes.length} field(s) modified). Audit trail recorded.`,
           'success',
           currentUser.id,
           ev.collegeId
@@ -1136,12 +1225,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // --- Admin Actions ---
   const approveEvent = async (eventId: string) => {
-    await updateDoc(doc(db, 'events', eventId), { status: 'approved' });
+    const now = new Date();
+    const approvedAt = now.toISOString();
+    const editWindowExpiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+
+    const approvalPayload = {
+      status: 'approved',
+      approvedAt,
+      editLocked: false,
+      editWindowExpiresAt,
+      updatedAt: approvedAt
+    };
+
+    await updateDoc(doc(db, 'events', eventId), approvalPayload);
+
     const ev = events.find(e => e.id === eventId);
     if (ev) {
-      addNotification(
+      await addNotification(
         'Event Approved',
-        `"${ev.title}" is now published and open for registrations.`,
+        `"${ev.title}" is now published and open for registrations. A 48-hour post-approval coordinator edit window is active.`,
         'success',
         ev.createdBy || ev.coordinatorId,
         ev.collegeId
@@ -1159,6 +1261,114 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         'warning',
         ev.createdBy || ev.coordinatorId,
         ev.collegeId
+      );
+    }
+  };
+
+  const unlockEventEditing = async (eventId: string) => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+
+    const ev = events.find(e => e.id === eventId);
+    if (!ev) return;
+
+    const now = new Date();
+    const nowStr = now.toISOString();
+    const newExpiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+
+    await updateDoc(doc(db, 'events', eventId), {
+      editLocked: false,
+      editWindowExpiresAt: newExpiresAt,
+      approvedAt: ev.approvedAt || nowStr,
+      lastEditedBy: currentUser.name,
+      updatedAt: nowStr
+    });
+
+    // Record audit log
+    const auditLogId = `audit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const auditLog: EventAuditLog = {
+      id: auditLogId,
+      eventId,
+      eventTitle: ev.title,
+      collegeId: ev.collegeId,
+      editedBy: currentUser.id,
+      editedByName: currentUser.name,
+      editedByRole: 'admin',
+      editedAt: nowStr,
+      changes: [{
+        field: 'editLocked',
+        oldValue: true,
+        newValue: false
+      }],
+      editWindowRemainingMs: 48 * 60 * 60 * 1000
+    };
+
+    try {
+      await setDoc(doc(db, 'eventAuditLogs', auditLogId), cleanObj(auditLog));
+    } catch (err) {
+      console.error('Error logging unlock audit:', err);
+    }
+
+    // Notify coordinator
+    if (ev.coordinatorId) {
+      await addNotification(
+        'Edit Window Unlocked',
+        `Admin ${currentUser.name} has granted a 48-hour edit window extension for "${ev.title}".`,
+        'success',
+        ev.coordinatorId,
+        ev.collegeId,
+        eventId
+      );
+    }
+  };
+
+  const lockEventEditing = async (eventId: string) => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+
+    const ev = events.find(e => e.id === eventId);
+    if (!ev) return;
+
+    const nowStr = new Date().toISOString();
+
+    await updateDoc(doc(db, 'events', eventId), {
+      editLocked: true,
+      lastEditedBy: currentUser.name,
+      updatedAt: nowStr
+    });
+
+    // Record audit log
+    const auditLogId = `audit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const auditLog: EventAuditLog = {
+      id: auditLogId,
+      eventId,
+      eventTitle: ev.title,
+      collegeId: ev.collegeId,
+      editedBy: currentUser.id,
+      editedByName: currentUser.name,
+      editedByRole: 'admin',
+      editedAt: nowStr,
+      changes: [{
+        field: 'editLocked',
+        oldValue: false,
+        newValue: true
+      }],
+      editWindowRemainingMs: 0
+    };
+
+    try {
+      await setDoc(doc(db, 'eventAuditLogs', auditLogId), cleanObj(auditLog));
+    } catch (err) {
+      console.error('Error logging lock audit:', err);
+    }
+
+    // Notify coordinator
+    if (ev.coordinatorId) {
+      await addNotification(
+        'Edit Window Locked',
+        `Admin ${currentUser.name} locked post-approval editing for "${ev.title}".`,
+        'warning',
+        ev.coordinatorId,
+        ev.collegeId,
+        eventId
       );
     }
   };
@@ -1247,6 +1457,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         registrations,
         certificates,
         notifications,
+        eventAuditLogs,
         colleges,
         currentPath,
         navigateTo,
@@ -1264,6 +1475,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         deleteEvent,
         approveEvent,
         rejectEvent,
+        unlockEventEditing,
+        lockEventEditing,
         markAttendance,
         clearNotification,
         markNotificationRead,

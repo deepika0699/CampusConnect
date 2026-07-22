@@ -58,12 +58,21 @@ export const EventCard: React.FC<EventCardProps> = ({
 
       {/* Event Header Image */}
       <div className="relative w-full h-48 overflow-hidden bg-slate-900 shrink-0">
-        <img
-          src={event.imageUrl}
-          alt={event.title}
-          className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-108"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent" />
+        {(() => {
+          const posterSrc = event.coverImage || event.imageUrl;
+          return posterSrc ? (
+            <img
+              src={posterSrc}
+              alt={event.title}
+              className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-108"
+              onError={(e) => {
+                // Hide image if broken and show placeholder gradient
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : null;
+        })()}
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent pointer-events-none" />
         
         {/* Badges Overlay */}
         <div className="absolute top-5 left-5 flex flex-wrap gap-2 z-20">

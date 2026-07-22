@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import { Calendar, MapPin, Users, Clock, ArrowLeft, Send, Sparkles, MessageSquare, Compass, Award, ShieldAlert } from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, ArrowLeft, Send, Sparkles, MessageSquare, Award, ShieldAlert, ExternalLink } from 'lucide-react';
 import { motion } from 'motion/react';
 import { CountdownTimer } from '../../components/common/CountdownTimer';
 
@@ -18,17 +18,21 @@ export const EventDetailsPage: React.FC = () => {
   const eventId = getEventId();
   const event = events.find(e => e.id === eventId);
 
-  // Chatbot states
+  // Event Assistant states
   const [chatMessage, setChatMessage] = useState('');
   const [chatLog, setChatLog] = useState<{ sender: 'user' | 'assistant'; text: string }[]>([
-    { sender: 'assistant', text: 'Hi! I am your Event Coordinator Assistant. Feel free to ask me anything about schedules, catering, prerequisites, or parking for this event!' }
+    { sender: 'assistant', text: 'Hi! I am your Event Assistant. Ask me any question about venue, timing, fees, prerequisites, or policies for this event.' }
   ]);
   const [isTyping, setIsTyping] = useState(false);
 
-  // Directions state
-  const [directionsQuery, setDirectionsQuery] = useState('');
-  const [directionSteps, setDirectionSteps] = useState<string[]>([]);
-  const [isRouting, setIsRouting] = useState(false);
+  // Cover Poster image states
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  React.useEffect(() => {
+    setImageError(false);
+    setImageLoaded(false);
+  }, [event?.id]);
 
   if (!event) {
     return (
@@ -52,50 +56,55 @@ export const EventDetailsPage: React.FC = () => {
   const isFull = event.currentParticipants >= event.maxParticipants;
   const isDeadlinePassed = new Date(event.registrationDeadline) < new Date();
 
-  // Handle Event Chatbot Logic (Instant AI simulation responding to queries about this event)
-  const handleSendMessage = () => {
-    if (!chatMessage.trim()) return;
-    const userText = chatMessage;
+  const hasMapCoords = event.mapLocation && 
+    typeof event.mapLocation.lat === 'number' && 
+    typeof event.mapLocation.lng === 'number' &&
+    !isNaN(event.mapLocation.lat) && 
+    !isNaN(event.mapLocation.lng);
+
+  // Handle Grounded Event Assistant API query
+  const handleSendMessage = async () => {
+    if (!chatMessage.trim() || !event?.id || isTyping) return;
+    const userText = chatMessage.trim();
     setChatLog(prev => [...prev, { sender: 'user', text: userText }]);
     setChatMessage('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      let reply = "I'm checking that with the CSE planning committee. Generally, we recommend wearing casual clothes and bringing a notebook!";
-      const textLower = userText.toLowerCase();
+    try {
+      const response = await fetch('/api/ai/event-assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: event.id, question: userText })
+      });
 
-      if (textLower.includes('food') || textLower.includes('catering') || textLower.includes('eat') || textLower.includes('lunch') || textLower.includes('drink')) {
-        reply = `Yes, snacks and refreshing beverages will be provided throughout the event at the ${event.venue}. Vegan and gluten-free items will also be available.`;
-      } else if (textLower.includes('where') || textLower.includes('location') || textLower.includes('room') || textLower.includes('get to') || textLower.includes('directions')) {
-        reply = `This event takes place in the ${event.venue}. ${event.locationDetails || 'Please use the central quad stairs to access.'}`;
-      } else if (textLower.includes('cost') || textLower.includes('price') || textLower.includes('free') || textLower.includes('pay')) {
-        reply = `Registration for "${event.title}" is entirely free for authorized student ID holders of CampusConnect!`;
-      } else if (textLower.includes('deadline') || textLower.includes('until') || textLower.includes('last day')) {
-        reply = `The registration window locks on ${new Date(event.registrationDeadline).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}. We suggest reserving your seat promptly!`;
-      } else if (textLower.includes('who') || textLower.includes('major') || textLower.includes('eligibility') || textLower.includes('major')) {
-        reply = `This event is organized by the ${event.department} department. It is open to all registered campus students, though CSE and engineering majors will find it particularly tailored!`;
-      } else if (textLower.includes('certificate') || textLower.includes('award') || textLower.includes('cred')) {
-        reply = `Yes! Full participation guarantees a verifiably cryptographically secure credential issued instantly under your Profile upon checked attendance.`;
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        setChatLog(prev => [
+          ...prev,
+          {
+            sender: 'assistant',
+            text: errData.answer || errData.error || 'The Event Assistant is temporarily unavailable. Please try again later.'
+          }
+        ]);
+      } else {
+        const data = await response.json();
+        setChatLog(prev => [
+          ...prev,
+          {
+            sender: 'assistant',
+            text: data.answer || 'I could not find that information in the event details. Please contact the event coordinator for confirmation.'
+          }
+        ]);
       }
-
-      setChatLog(prev => [...prev, { sender: 'assistant', text: reply }]);
-      setIsTyping(false);
-    }, 600);
-  };
-
-  // Handle Directions Navigation Logic
-  const handleGetDirections = () => {
-    if (!directionsQuery.trim()) return;
-    setIsRouting(true);
-    setTimeout(() => {
-      setDirectionSteps([
-        `Departing from ${directionsQuery}`,
-        'Take campus shuttle line B north towards central circle',
-        `Disembark at the quad amphitheater and head right for ${event.venue}`,
-        `You have arrived at ${event.venue}. Proceed to the check-in desk for QR check-in.`
+    } catch (err) {
+      console.error('Error calling Event Assistant API:', err);
+      setChatLog(prev => [
+        ...prev,
+        { sender: 'assistant', text: 'The Event Assistant is temporarily unavailable. Please try again later.' }
       ]);
-      setIsRouting(false);
-    }, 500);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   return (
@@ -116,16 +125,52 @@ export const EventDetailsPage: React.FC = () => {
           
           {/* Main Card */}
           <Card className="overflow-hidden bg-white border border-slate-100 rounded-3xl shadow-sm">
-            <div className="relative w-full h-72 sm:h-96">
-              <img
-                src={event.imageUrl}
-                alt={event.title}
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
+            <div className="relative w-full h-72 sm:h-96 bg-slate-900">
+              {(() => {
+                const posterSrc = event.coverImage || event.imageUrl;
+                const hasPoster = Boolean(posterSrc && posterSrc.trim() && !imageError);
+
+                if (hasPoster) {
+                  return (
+                    <>
+                      <img
+                        src={posterSrc}
+                        alt={event.title}
+                        className={`w-full h-full object-cover transition-opacity duration-300 ${
+                          imageLoaded ? 'opacity-100' : 'opacity-0'
+                        }`}
+                        onLoad={() => setImageLoaded(true)}
+                        onError={() => setImageError(true)}
+                      />
+                      {!imageLoaded && (
+                        <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center text-slate-400 space-y-2">
+                          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                          <span className="text-xs font-semibold text-slate-300">Loading Cover Poster...</span>
+                        </div>
+                      )}
+                    </>
+                  );
+                } else {
+                  return (
+                    <div className="w-full h-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex items-center justify-center relative p-8 text-center overflow-hidden">
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(99,102,241,0.2),transparent_70%)]" />
+                      <div className="relative z-0 space-y-2 max-w-lg mb-12">
+                        <span className="px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-extrabold uppercase tracking-widest border border-indigo-400/20 backdrop-blur-xs inline-block">
+                          {event.category} Event
+                        </span>
+                        <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight drop-shadow-xs">
+                          {event.title}
+                        </h3>
+                      </div>
+                    </div>
+                  );
+                }
+              })()}
+
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent pointer-events-none" />
               
               {/* Overlay Content */}
-              <div className="absolute bottom-6 left-6 right-6 text-white space-y-2">
+              <div className="absolute bottom-6 left-6 right-6 text-white space-y-2 z-10">
                 <div className="flex flex-wrap gap-2 items-center text-xs">
                   <span className="px-2.5 py-1 rounded-lg bg-indigo-600/95 font-bold text-xs uppercase tracking-widest text-white border border-indigo-400/20">
                     {event.category}
@@ -191,7 +236,14 @@ export const EventDetailsPage: React.FC = () => {
 
               {/* Event Long Description */}
               <div className="space-y-3">
-                <h2 className="text-base font-extrabold text-slate-800 tracking-tight">Event Description</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-extrabold text-slate-800 tracking-tight">Event Description</h2>
+                  {event.lastEditedAt && (
+                    <span className="text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+                      Revised {new Date(event.lastEditedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-slate-600 leading-relaxed font-medium">
                   {event.longDescription || event.description}
                 </p>
@@ -257,63 +309,96 @@ export const EventDetailsPage: React.FC = () => {
             </div>
           </Card>
 
-          {/* Location Details & Directions Section */}
-          <Card className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-5">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-violet-50 text-violet-600">
-                <Compass className="h-5.5 w-5.5" />
+          {/* Venue & Navigation Section */}
+          <Card className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100/60">
+                  <MapPin className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-800 tracking-tight">Venue & Navigation</h3>
+                  <p className="text-xs text-slate-400 font-medium">Interactive venue map & directions</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-800 tracking-tight">Location Details & Navigation</h3>
-                <p className="text-[10px] text-slate-400">Discover precise instructions to reach {event.venue}.</p>
-              </div>
+
+              {hasMapCoords && (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${event.mapLocation!.lat},${event.mapLocation!.lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Open directions to ${event.title} venue on Google Maps`}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs shadow-xs transition-all cursor-pointer w-full sm:w-auto"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  <span>Open Directions</span>
+                </a>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs space-y-2">
-                  <p className="font-bold text-slate-700">Detailed Venue Note:</p>
-                  <p className="text-slate-500 font-medium leading-relaxed">{event.locationDetails}</p>
+            {hasMapCoords ? (
+              <div className="space-y-6">
+                {/* 4A: Embedded Google Map */}
+                <div className="w-full overflow-hidden rounded-3xl border border-slate-200/80 shadow-xs">
+                  <iframe
+                    title={`Google Map for ${event.title} venue`}
+                    src={`https://www.google.com/maps?q=${event.mapLocation!.lat},${event.mapLocation!.lng}&z=17&output=embed`}
+                    width="100%"
+                    height="300"
+                    style={{ border: 0 }}
+                    allowFullScreen
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    className="w-full h-[300px] rounded-3xl block"
+                  />
                 </div>
 
-                {/* Directions input */}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-600">Enter your starting point (e.g. Student Dorms B, West Gate)</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="e.g. Dormitory Complex..."
-                      value={directionsQuery}
-                      onChange={e => setDirectionsQuery(e.target.value)}
-                      className="flex-1 px-3.5 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white placeholder:text-slate-400 text-slate-800"
-                    />
-                    <Button variant="outline" size="sm" onClick={handleGetDirections} disabled={!directionsQuery.trim()}>
-                      Route
-                    </Button>
+                {/* 4B: Venue Information Card */}
+                <div className="p-5 bg-slate-50 border border-slate-100 rounded-3xl space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-2xl bg-white border border-slate-200/60 text-indigo-600 shrink-0 mt-0.5 shadow-2xs">
+                      <MapPin className="h-4 w-4" />
+                    </div>
+                    <div className="space-y-2 flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h4 className="font-extrabold text-slate-800 text-sm truncate">{event.venue}</h4>
+                        {event.mapLocation!.mapLabel && (
+                          <span className="px-2.5 py-0.5 rounded-full bg-indigo-100/80 text-indigo-700 text-[10px] font-bold uppercase tracking-wider">
+                            {event.mapLocation!.mapLabel}
+                          </span>
+                        )}
+                      </div>
+
+                      {(event.mapLocation!.address || event.mapLocation!.name || event.locationDetails) && (
+                        <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                          {event.mapLocation!.address || event.mapLocation!.name || event.locationDetails}
+                        </p>
+                      )}
+
+                      <div className="pt-2 flex flex-wrap items-center gap-2 border-t border-slate-200/60">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Coordinates:</span>
+                        <span className="font-mono text-xs font-semibold text-slate-600 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200/60">
+                          {event.mapLocation!.lat.toFixed(6)}, {event.mapLocation!.lng.toFixed(6)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-
-              {/* Directions Response Steps */}
-              <div className="bg-slate-950 rounded-2xl border border-slate-800 p-5 text-xs text-slate-300 font-mono flex flex-col justify-between min-h-[160px]">
-                <div className="space-y-2.5">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">Active Navigation Terminal</p>
-                  {directionSteps.length === 0 ? (
-                    <p className="text-slate-500 italic mt-4">Input starting reference coordinates on the left to trace navigation routes...</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {directionSteps.map((step, idx) => (
-                        <div key={idx} className="flex gap-2 items-start text-emerald-400">
-                          <span>{idx + 1}.</span>
-                          <span className="text-slate-300">{step}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+            ) : (
+              /* 5: Graceful Fallback Card */
+              <div className="p-8 bg-slate-50 border border-slate-100 rounded-3xl text-center space-y-3">
+                <div className="mx-auto h-12 w-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center">
+                  <MapPin className="h-6 w-6" />
                 </div>
-                <span className="text-[9px] text-slate-600 mt-4 block text-right">GPS Core Engine v1.02</span>
+                <div className="space-y-1">
+                  <p className="text-sm font-bold text-slate-700">Map not available for this event.</p>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto font-medium">
+                    The event coordinator has not mapped exact GPS coordinates for {event.venue}.
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
           </Card>
 
         </div>
@@ -465,16 +550,27 @@ export const EventDetailsPage: React.FC = () => {
             )}
           </Card>
 
-          {/* AI Event Chatbot widget */}
-          <Card className="p-5 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col h-[400px]">
-            <div className="flex items-center gap-2 mb-3 shrink-0 pb-3 border-b border-slate-50">
-              <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600">
-                <MessageSquare className="h-4.5 w-4.5" />
+          {/* Secure Grounded Event Assistant widget */}
+          <Card className="p-5 bg-white border border-slate-100 rounded-3xl shadow-xs flex flex-col h-[460px]">
+            <div className="flex flex-col gap-2 mb-3 shrink-0 pb-3 border-b border-slate-100">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
+                    <Sparkles className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 tracking-tight">Event Assistant</h4>
+                    <p className="text-[10px] text-slate-500 font-medium">Verified Event Intelligence</p>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[9px] font-bold uppercase tracking-wider shrink-0">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Grounded on live event data
+                </span>
               </div>
-              <div>
-                <h4 className="text-xs font-bold text-slate-800">Event Chatbot Assistant</h4>
-                <p className="text-[8px] text-slate-400">Ask about prerequisites, catering, and updates.</p>
-              </div>
+              <p className="text-[9.5px] text-slate-400 font-medium leading-relaxed bg-slate-50 p-2 rounded-xl border border-slate-100/80">
+                Answers are generated from the current event information and do not include private user or administrative data.
+              </p>
             </div>
 
             {/* Chat Messages Log */}
@@ -485,10 +581,10 @@ export const EventDetailsPage: React.FC = () => {
                   className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[85%] px-3 py-2 rounded-2xl ${
+                    className={`max-w-[88%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${
                       msg.sender === 'user'
-                        ? 'bg-indigo-600 text-white rounded-tr-none'
-                        : 'bg-slate-100 text-slate-700 rounded-tl-none font-medium'
+                        ? 'bg-indigo-600 text-white rounded-tr-none font-medium shadow-2xs'
+                        : 'bg-slate-100/90 text-slate-700 border border-slate-200/50 rounded-tl-none font-medium'
                     }`}
                   >
                     {msg.text}
@@ -497,27 +593,28 @@ export const EventDetailsPage: React.FC = () => {
               ))}
               {isTyping && (
                 <div className="flex justify-start">
-                  <div className="bg-slate-100 text-slate-400 px-3 py-2 rounded-2xl rounded-tl-none animate-pulse">
-                    Typing...
+                  <div className="bg-slate-100 text-slate-400 px-3.5 py-2 rounded-2xl rounded-tl-none animate-pulse text-xs">
+                    Assistant is thinking...
                   </div>
                 </div>
               )}
             </div>
 
             {/* Input Bar */}
-            <div className="mt-3 pt-3 border-t border-slate-50 flex gap-2 shrink-0">
+            <div className="mt-3 pt-3 border-t border-slate-100 flex gap-2 shrink-0">
               <input
                 type="text"
-                placeholder="Ask e.g. Is lunch free?..."
+                placeholder="Ask e.g. Is food provided?..."
                 value={chatMessage}
                 onChange={e => setChatMessage(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                className="flex-1 px-3 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white placeholder:text-slate-400 text-slate-800"
+                disabled={isTyping}
+                className="flex-1 px-3.5 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white placeholder:text-slate-400 text-slate-800 disabled:bg-slate-50"
               />
               <button
                 onClick={handleSendMessage}
-                disabled={!chatMessage.trim()}
-                className="p-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all disabled:opacity-50 cursor-pointer"
+                disabled={!chatMessage.trim() || isTyping}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold rounded-xl transition-all disabled:opacity-50 cursor-pointer text-xs flex items-center justify-center"
               >
                 <Send className="h-3.5 w-3.5" />
               </button>

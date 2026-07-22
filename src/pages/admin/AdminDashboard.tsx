@@ -4,10 +4,22 @@ import { StatCard } from '../../components/dashboard/StatCard';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Input, Textarea } from '../../components/common/Input';
-import { ShieldAlert, CheckCircle2, Clock, Users, Award, ShieldCheck, Mail, Calendar, Megaphone } from 'lucide-react';
+import { ShieldAlert, CheckCircle2, Clock, Users, Award, ShieldCheck, Mail, Calendar, Megaphone, Lock, Unlock, History, FileText } from 'lucide-react';
+import { getEditWindowStatus } from '../../lib/eventUtils';
 
 export const AdminDashboard: React.FC = () => {
-  const { currentUser, events, registrations, certificates, approveEvent, rejectEvent, addNotification } = useApp();
+  const { 
+    currentUser, 
+    events, 
+    registrations, 
+    certificates, 
+    eventAuditLogs, 
+    approveEvent, 
+    rejectEvent, 
+    unlockEventEditing, 
+    lockEventEditing, 
+    addNotification 
+  } = useApp();
 
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementMessage, setAnnouncementMessage] = useState('');
@@ -238,6 +250,128 @@ export const AdminDashboard: React.FC = () => {
             </form>
           </Card>
         </div>
+      </div>
+
+      {/* Phase 6D: Post-Approval Coordinator Edit Window Controls */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Approved Events Edit Window Management */}
+        <Card className="bg-white border border-slate-100 rounded-3xl shadow-sm overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="px-6 py-4.5 border-b border-slate-50/80 bg-slate-50/30 flex justify-between items-center">
+              <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                <Clock className="h-4 w-4 text-emerald-600" /> 48-Hour Coordinator Edit Window Management
+              </h3>
+              <span className="text-xs text-slate-500 font-bold">
+                {events.filter(e => e.status === 'approved').length} Approved Events
+              </span>
+            </div>
+
+            {events.filter(e => e.status === 'approved').length === 0 ? (
+              <div className="p-12 text-center text-slate-400">
+                <ShieldCheck className="h-10 w-10 text-slate-200 mx-auto mb-3" />
+                <p className="text-xs font-semibold">No approved events found</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50/60 border-b border-slate-100 text-slate-400 uppercase tracking-widest font-bold text-[9px]">
+                      <th className="py-3 px-5">Event Title</th>
+                      <th className="py-3 px-5">Coordinator</th>
+                      <th className="py-3 px-5">Edit Window Status</th>
+                      <th className="py-3 px-5 text-center">Admin Override</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 text-slate-600 font-medium">
+                    {events.filter(e => e.status === 'approved').map((evt) => {
+                      const editStatus = getEditWindowStatus(evt);
+                      return (
+                        <tr key={evt.id} className="hover:bg-slate-50/10">
+                          <td className="py-3.5 px-5 font-bold text-slate-800">{evt.title}</td>
+                          <td className="py-3.5 px-5 text-slate-500">{evt.coordinatorName}</td>
+                          <td className="py-3.5 px-5">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${editStatus.badgeClass}`}>
+                              {editStatus.statusLabel}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-5 text-center">
+                            {editStatus.canEdit ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-[10px] font-bold py-1 px-2.5 border-rose-200 text-rose-700 hover:bg-rose-50"
+                                leftIcon={<Lock className="h-3 w-3" />}
+                                onClick={() => lockEventEditing(evt.id)}
+                              >
+                                Lock Window
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-[10px] font-bold py-1 px-2.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                leftIcon={<Unlock className="h-3 w-3" />}
+                                onClick={() => unlockEventEditing(evt.id)}
+                              >
+                                Unlock 48h Window
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Audit Trail System Logs */}
+        <Card className="bg-white border border-slate-100 rounded-3xl shadow-sm overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="px-6 py-4.5 border-b border-slate-50/80 bg-slate-50/30 flex justify-between items-center">
+              <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                <History className="h-4 w-4 text-indigo-600" /> Immutable Audit Trail System Logs
+              </h3>
+              <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md font-bold">
+                {eventAuditLogs.length} Records
+              </span>
+            </div>
+
+            {eventAuditLogs.length === 0 ? (
+              <div className="p-12 text-center text-slate-400">
+                <FileText className="h-10 w-10 text-slate-200 mx-auto mb-3" />
+                <p className="text-xs font-semibold">No edit audit records logged yet</p>
+                <p className="text-[10px] bg-slate-50 text-slate-500 mt-1 inline-block px-2 py-0.5 rounded">All coordinator edits post-approval are tracked automatically.</p>
+              </div>
+            ) : (
+              <div className="p-4 space-y-3 max-h-[350px] overflow-y-auto">
+                {eventAuditLogs.slice(0, 15).map((log) => (
+                  <div key={log.id} className="p-3.5 bg-slate-50/60 border border-slate-150 rounded-2xl space-y-2 text-xs">
+                    <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                        <span className="text-indigo-600">[{log.eventTitle}]</span>
+                        <span>by {log.editedByName || 'User'} ({log.editedByRole})</span>
+                      </div>
+                      <span className="text-[9.5px] text-slate-400 font-semibold">{new Date(log.editedAt).toLocaleString()}</span>
+                    </div>
+
+                    <div className="space-y-1 pl-2 border-l-2 border-indigo-300">
+                      {log.changes.map((ch, idx) => (
+                        <div key={idx} className="text-[11px] text-slate-600">
+                          <span className="font-bold capitalize text-slate-700">{ch.field}: </span>
+                          <span className="line-through text-slate-400 mr-1">{String(ch.oldValue ?? 'None')}</span>
+                          <span className="font-semibold text-emerald-700">→ {String(ch.newValue ?? 'None')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
       </div>
     </div>
   );
