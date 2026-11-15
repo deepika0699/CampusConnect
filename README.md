@@ -9,7 +9,7 @@ CampusConnect is a production-oriented multi-campus SaaS event management platfo
 
 ---
 
-## 🚀 Key Features
+Key Features
 
 *   **Multi-Campus Tenant Isolation:** Robust tenant-aware routing that separates events, announcements, and registrations by campus, with flexible provisions for cross-campus visibility.
 *   **Role-Based Access Control (RBAC):** Distinct portals and customized workspaces for **Students**, **Coordinators**, and **Administrators** integrated with Firebase Authentication.
@@ -21,7 +21,7 @@ CampusConnect is a production-oriented multi-campus SaaS event management platfo
 
 ---
 
-## 🛠️ Tech Stack
+Tech Stack
 
 ### Frontend & Client Experience
 *   **React 19 & TypeScript:** Strict typing, declarative state engines, and modern React hooks.
@@ -40,23 +40,22 @@ CampusConnect is a production-oriented multi-campus SaaS event management platfo
 
 ## 🏛️ Architecture Highlights
 
-### 🔒 Strict Tenant Isolation & RBAC
+Strict Tenant Isolation & RBAC
 Campus documents are strictly isolated at the schema and security levels. Firestore Security Rules enforce access control rules dynamically by verifying `request.auth.uid` and comparing user role fields before any write or read operation succeeds.
 
-### ⚡ Race-Condition-Safe Seat Allocation
+Race-Condition-Safe Seat Allocation
 To prevent registration overbooking, CampusConnect leverages **Firestore atomic transactions (`runTransaction`)**. Seat allocation queries read the current availability, verify registration status, and decrement the seat counter atomically to ensure absolute synchronization even under massive concurrent load.
 
-### 🔄 Real-Time Synchronization
+Real-Time Synchronization
 
 CampusConnect uses Firestore `onSnapshot` listeners with tenant-scoped queries to provide live updates for events, registrations, notifications, attendance status, and certificate availability without requiring manual page refreshes.
 
-### 🧾 Secure Certificate Verification API
+Secure Certificate Verification API
 When attendance is validated by a coordinator, a unique hash is generated on the server. The public-facing `/verify/:verificationCode` portal uses a robust Express endpoint to query and validate the certificate's authenticity, preventing digital certificate forgery.
 
 
 ---
-
-## 🗺️ Project Roadmap
+Project Roadmap
 
 ### Phase 1 — SaaS Foundation
 *   [x] Multi-campus tenant isolation and onboarding architecture
@@ -135,7 +134,7 @@ When attendance is validated by a coordinator, a unique hash is generated on the
 
 ---
 
-## 💻 Local Development
+Local Development
 
 Follow these steps to run the CampusConnect application locally:
 
